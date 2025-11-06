@@ -19,7 +19,7 @@ class UserController extends Controller
 
         if (!$currentUser || $currentUser->role !== 'admin') {
             return response()->json([
-                'data' => [],
+                'users' => [],
                 'status' => 403,
                 'message' => 'Forbidden',
             ], 403);
@@ -36,7 +36,7 @@ class UserController extends Controller
         $users = User::orderByDesc('id')->paginate($perPage);
 
         return response()->json([
-            'data' => $users,
+            'users' => $users,
             'status' => 200,
             'message' => 'Users fetched successfully',
         ], 200);
@@ -53,7 +53,7 @@ class UserController extends Controller
         $user = User::find($id);
         if (!$user) {
             return response()->json([
-                'data' => [],
+                'user' => [],
                 'status' => 404,
                 'message' => 'User not found',
             ], 404);
@@ -63,14 +63,14 @@ class UserController extends Controller
         $isSelf = $currentUser && $currentUser->id === $user->id;
         if (!$isAdmin && !$isSelf) {
             return response()->json([
-                'data' => [],
+                'user' => [],
                 'status' => 403,
                 'message' => 'Forbidden',
             ], 403);
         }
 
         return response()->json([
-            'data' => $user,
+            'user' => $user,
             'status' => 200,
             'message' => 'User fetched successfully',
         ], 200);
@@ -88,7 +88,7 @@ class UserController extends Controller
 
         if (!$user) {
             return response()->json([
-                'data' => [],
+                'user' => [],
                 'status' => 404,
                 'message' => 'User not found',
             ], 404);
@@ -98,7 +98,7 @@ class UserController extends Controller
         $isSelf = $currentUser && $currentUser->id === $user->id;
         if (!$isAdmin && !$isSelf) {
             return response()->json([
-                'data' => [],
+                'user' => [],
                 'status' => 403,
                 'message' => 'Forbidden',
             ], 403);
@@ -148,7 +148,7 @@ class UserController extends Controller
         $user->update($updatable);
 
         return response()->json([
-            'data' => $user,
+            'user' => $user,
             'status' => 200,
             'message' => 'User updated successfully',
         ], 200);

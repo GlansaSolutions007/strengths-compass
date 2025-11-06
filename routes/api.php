@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\OptionsController;
 use App\Http\Controllers\Api\ClusterController;
+use App\Http\Controllers\Api\ConstructController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -30,4 +31,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clusters', [ClusterController::class, 'store']);
     Route::put('/clusters/{id}', [ClusterController::class, 'update']);
     Route::delete('/clusters/{id}', [ClusterController::class, 'destroy']);
+
+    // Construct CRUD
+    Route::get('/constructs', [ConstructController::class, 'index']);
+    Route::get('/constructs/{id}', [ConstructController::class, 'show']);
+    Route::post('/constructs', [ConstructController::class, 'store']);
+    Route::put('/constructs/{id}', [ConstructController::class, 'update']);
+    Route::delete('/constructs/{id}', [ConstructController::class, 'destroy']);
+    
+    // Constructs by Cluster (alternative route)
+    Route::get('/clusters/{clusterId}/constructs', [ConstructController::class, 'getByCluster']);
 });

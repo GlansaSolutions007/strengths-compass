@@ -9,7 +9,20 @@ class Construct extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'description', 'cluster_id'];
+    protected $fillable = [
+        'cluster_id',
+        'name',
+        'short_code',
+        'description',
+        'definition',
+        'high_behavior',
+        'low_behavior',
+        'benefits',
+        'risks',
+        'coaching_applications',
+        'case_example',
+        'display_order'
+    ];
 
     public function cluster()
     {
