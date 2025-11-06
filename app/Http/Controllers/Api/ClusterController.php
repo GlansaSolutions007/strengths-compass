@@ -17,7 +17,8 @@ class ClusterController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $clusters
+            'data' => $clusters,
+            'message' => 'Clusters fetched successfully'
         ], 200);
     }
 
