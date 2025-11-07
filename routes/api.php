@@ -52,4 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Questions by Construct
     Route::get('constructs/{constructId}/questions', [QuestionsController::class, 'byConstruct']);
+    
+    // Questions Bulk Upload
+    Route::post('questions/bulk-upload', [QuestionsController::class, 'bulkUpload']);
 });

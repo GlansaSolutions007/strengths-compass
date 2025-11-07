@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\QuestionsModel as Question;
 use App\Models\Construct;
+use App\Imports\QuestionsImport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class QuestionsController extends Controller
 {
@@ -179,5 +181,94 @@ class QuestionsController extends Controller
             'data' => $questions,
             'message' => 'Questions fetched successfully',
         ], 200);
+    }
+
+    /**
+     * Bulk upload questions from Excel file
+     * 
+     * Supports two modes:
+     * 1. With construct_id in request: All questions will be assigned to that construct
+     * 2. Without construct_id: Excel file must have construct_id column
+     */
+    public function bulkUpload(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|mimes:xlsx,xls,csv|max:10240', // 10MB max
+            'construct_id' => 'sometimes|nullable|exists:constructs,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed',
+            ], 422);
+        }
+
+        try {
+            $file = $request->file('file');
+            $constructId = $request->input('construct_id');
+
+            // If construct_id is provided, validate it exists
+            if ($constructId) {
+                $construct = Construct::find($constructId);
+                if (!$construct) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Construct not found',
+                    ], 404);
+                }
+            }
+
+            // Create import instance with optional construct_id
+            $import = new QuestionsImport($constructId);
+
+            // Import the file
+            Excel::import($import, $file);
+
+            // Get import statistics
+            $stats = $import->getStats();
+
+            // Prepare response
+            $response = [
+                'status' => true,
+                'message' => 'Bulk upload completed',
+                'data' => [
+                    'success_count' => $stats['success'],
+                    'failure_count' => $stats['failures'],
+                    'total_processed' => $stats['success'] + $stats['failures'],
+                ],
+            ];
+
+            // Add failure details if any
+            if ($stats['failures'] > 0) {
+                // Get failures from the import instance (provided by SkipsFailures trait)
+                $failures = method_exists($import, 'failures') ? $import->failures() : collect();
+                $failureDetails = [];
+
+                foreach ($failures as $failure) {
+                    $failureDetails[] = [
+                        'row' => $failure->row(),
+                        'attribute' => $failure->attribute(),
+                        'errors' => $failure->errors(),
+                        'values' => $failure->values(),
+                    ];
+                }
+                
+                $response['data']['failures'] = $failureDetails;
+                $response['data']['errors'] = $stats['errors'];
+            }
+
+            // Determine HTTP status code
+            $statusCode = $stats['failures'] > 0 ? 207 : 200; // 207 Multi-Status if partial success
+
+            return response()->json($response, $statusCode);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error processing Excel file: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }
