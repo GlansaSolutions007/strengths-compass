@@ -45,6 +45,7 @@ class ClusterController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
         ]);
 
@@ -55,7 +56,7 @@ class ClusterController extends Controller
             ], 422);
         }
 
-        $cluster = Cluster::create($request->only('name', 'description'));
+        $cluster = Cluster::create($request->only('name', 'short_code', 'description'));
 
         return response()->json([
             'status' => true,
@@ -78,6 +79,7 @@ class ClusterController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
+            'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
         ]);
 
@@ -88,7 +90,7 @@ class ClusterController extends Controller
             ], 422);
         }
 
-        $cluster->update($request->only('name', 'description'));
+        $cluster->update($request->only('name', 'short_code', 'description'));
 
         return response()->json([
             'status' => true,

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\OptionsController;
 use App\Http\Controllers\Api\ClusterController;
 use App\Http\Controllers\Api\ConstructController;
 use App\Http\Controllers\Api\QuestionsController;
+use App\Http\Controllers\Api\TestController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -55,4 +56,24 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Questions Bulk Upload
     Route::post('questions/bulk-upload', [QuestionsController::class, 'bulkUpload']);
+
+    // Tests CRUD
+    Route::get('tests', [TestController::class, 'index']);
+    Route::get('tests/{id}', [TestController::class, 'show']);
+    Route::post('tests', [TestController::class, 'store']);
+    Route::put('tests/{id}', [TestController::class, 'update']);
+    Route::delete('tests/{id}', [TestController::class, 'destroy']);
+    
+    // Test Clusters Management
+    Route::post('tests/{id}/clusters/attach', [TestController::class, 'attachClusters']);
+    Route::post('tests/{id}/clusters/detach', [TestController::class, 'detachClusters']);
+    
+    // Test Questions and Constructs
+    Route::get('tests/{id}/questions', [TestController::class, 'getQuestions']);
+    Route::get('tests/{id}/constructs', [TestController::class, 'getConstructs']);
+    
+    // Test Question Selection
+    Route::put('tests/{testId}/clusters/{clusterId}/category-counts', [TestController::class, 'setClusterCategoryCounts']);
+    Route::post('tests/{id}/generate-questions', [TestController::class, 'generateQuestionSelection']);
+    Route::post('tests/{id}/regenerate-questions', [TestController::class, 'regenerateQuestionSelection']);
 });
