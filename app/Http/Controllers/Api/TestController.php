@@ -42,6 +42,8 @@ class TestController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'is_active' => 'sometimes|boolean',
+            'cluster_ids' => 'sometimes|array',
+            'cluster_ids.*' => 'exists:clusters,id',
             'clusters' => 'sometimes|array',
             'clusters.*.cluster_id' => 'required|exists:clusters,id',
             'clusters.*.p_count' => 'nullable|integer|min:0',
@@ -59,7 +61,18 @@ class TestController extends Controller
 
         $test = Test::create($request->only(['title', 'description', 'is_active']));
 
-        // Attach clusters with category counts if provided
+        // Handle cluster_ids (simple array format - backward compatibility)
+        if ($request->has('cluster_ids') && is_array($request->cluster_ids)) {
+            foreach ($request->cluster_ids as $clusterId) {
+                $test->clusters()->attach($clusterId, [
+                    'p_count' => null,
+                    'r_count' => null,
+                    'sdb_count' => null,
+                ]);
+            }
+        }
+
+        // Handle clusters (nested format with category counts)
         if ($request->has('clusters')) {
             foreach ($request->clusters as $clusterData) {
                 $test->clusters()->attach($clusterData['cluster_id'], [
@@ -71,6 +84,11 @@ class TestController extends Controller
         }
 
         $test->load('clusters');
+
+        // Auto-generate questions if clusters are attached
+        if ($test->clusters->count() > 0) {
+            $this->generateQuestionSelectionInternal($test);
+        }
 
         return response()->json([
             'status' => true,
@@ -379,20 +397,12 @@ class TestController extends Controller
     }
 
     /**
-     * Generate question selection based on category counts
-     * If no category counts are set, includes ALL questions (backward compatibility)
+     * Internal method to generate question selection (can be called from store or generateQuestionSelection)
      */
-    public function generateQuestionSelection(string $id)
+    private function generateQuestionSelectionInternal(Test $test)
     {
-        $test = Test::with('clusters')->find($id);
-
-        if (!$test) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Test not found'
-            ], 404);
-        }
-
+        $test->load('clusters');
+        
         $selectedQuestions = [];
         $errors = [];
         $orderNo = 1;
@@ -512,18 +522,42 @@ class TestController extends Controller
             DB::table('test_question')->insert($uniqueQuestions);
         }
 
+        return [
+            'selected_count' => count($uniqueQuestions),
+            'total_requested' => count($selectedQuestions),
+            'errors' => $errors
+        ];
+    }
+
+    /**
+     * Generate question selection based on category counts
+     * If no category counts are set, includes ALL questions (backward compatibility)
+     */
+    public function generateQuestionSelection(string $id)
+    {
+        $test = Test::with('clusters')->find($id);
+
+        if (!$test) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Test not found'
+            ], 404);
+        }
+
+        $result = $this->generateQuestionSelectionInternal($test);
+
         $response = [
             'status' => true,
             'message' => 'Question selection generated successfully',
             'data' => [
                 'test_id' => $test->id,
-                'selected_count' => count($uniqueQuestions),
-                'total_requested' => count($selectedQuestions),
+                'selected_count' => $result['selected_count'],
+                'total_requested' => $result['total_requested'],
             ]
         ];
 
-        if (!empty($errors)) {
-            $response['warnings'] = $errors;
+        if (!empty($result['errors'])) {
+            $response['warnings'] = $result['errors'];
             $response['message'] = 'Question selection generated with warnings';
         }
 
