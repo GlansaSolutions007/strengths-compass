@@ -38,6 +38,13 @@ class TestController extends Controller
      */
     public function store(Request $request)
     {
+        // Debug: Log the request method and data
+        \Log::info('Test Store Method Called', [
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'data' => $request->all()
+        ]);
+
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -59,42 +66,58 @@ class TestController extends Controller
             ], 422);
         }
 
-        $test = Test::create($request->only(['title', 'description', 'is_active']));
+        try {
+            $test = Test::create($request->only(['title', 'description', 'is_active']));
 
-        // Handle cluster_ids (simple array format - backward compatibility)
-        if ($request->has('cluster_ids') && is_array($request->cluster_ids)) {
-            foreach ($request->cluster_ids as $clusterId) {
-                $test->clusters()->attach($clusterId, [
-                    'p_count' => null,
-                    'r_count' => null,
-                    'sdb_count' => null,
-                ]);
+            // Handle cluster_ids (simple array format - backward compatibility)
+            if ($request->has('cluster_ids') && is_array($request->cluster_ids)) {
+                foreach ($request->cluster_ids as $clusterId) {
+                    $test->clusters()->attach($clusterId, [
+                        'p_count' => null,
+                        'r_count' => null,
+                        'sdb_count' => null,
+                    ]);
+                }
             }
-        }
 
-        // Handle clusters (nested format with category counts)
-        if ($request->has('clusters')) {
-            foreach ($request->clusters as $clusterData) {
-                $test->clusters()->attach($clusterData['cluster_id'], [
-                    'p_count' => $clusterData['p_count'] ?? null,
-                    'r_count' => $clusterData['r_count'] ?? null,
-                    'sdb_count' => $clusterData['sdb_count'] ?? null,
-                ]);
+            // Handle clusters (nested format with category counts)
+            if ($request->has('clusters')) {
+                foreach ($request->clusters as $clusterData) {
+                    $test->clusters()->attach($clusterData['cluster_id'], [
+                        'p_count' => $clusterData['p_count'] ?? null,
+                        'r_count' => $clusterData['r_count'] ?? null,
+                        'sdb_count' => $clusterData['sdb_count'] ?? null,
+                    ]);
+                }
             }
+
+            $test->load('clusters');
+
+            // Auto-generate questions if clusters are attached
+            if ($test->clusters->count() > 0) {
+                $this->generateQuestionSelectionInternal($test);
+            }
+
+            // Reload test with questions to include in response
+            $test->load('selectedQuestions');
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Test created successfully',
+                'data' => $test,
+                'selected_questions_count' => $test->selectedQuestions->count()
+            ], 201);
+        } catch (\Exception $e) {
+            \Log::error('Test Creation Error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Error creating test: ' . $e->getMessage()
+            ], 500);
         }
-
-        $test->load('clusters');
-
-        // Auto-generate questions if clusters are attached
-        if ($test->clusters->count() > 0) {
-            $this->generateQuestionSelectionInternal($test);
-        }
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Test created successfully',
-            'data' => $test
-        ], 201);
     }
 
     /**
