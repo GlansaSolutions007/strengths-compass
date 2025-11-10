@@ -69,10 +69,30 @@ class TestTakingController extends Controller
      */
     public function submitAnswers(Request $request, $testId)
     {
+        // First verify the test exists
+        $test = Test::find($testId);
+        if (!$test) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Test not found'
+            ], 404);
+        }
+
+        // Get valid question IDs for this test
+        $validQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
+
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
             'answers' => 'required|array',
-            'answers.*.question_id' => 'required|exists:questions,id',
+            'answers.*.question_id' => [
+                'required',
+                'integer',
+                function ($attribute, $value, $fail) use ($validQuestionIds, $testId) {
+                    if (!in_array($value, $validQuestionIds)) {
+                        $fail("The question ID {$value} is not part of test {$testId}.");
+                    }
+                }
+            ],
             'answers.*.answer_value' => 'required|integer|min:1|max:5',
         ]);
 
@@ -80,16 +100,9 @@ class TestTakingController extends Controller
             return response()->json([
                 'status' => false,
                 'errors' => $validator->errors(),
-                'message' => 'Validation failed'
+                'message' => 'Validation failed',
+                'hint' => 'Make sure all question_ids belong to this test. Use GET /api/tests/' . $testId . '/take to see valid questions.'
             ], 422);
-        }
-
-        $test = Test::find($testId);
-        if (!$test) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Test not found'
-            ], 404);
         }
 
         $userId = $request->input('user_id');
