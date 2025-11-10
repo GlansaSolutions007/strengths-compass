@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ClusterController;
 use App\Http\Controllers\Api\ConstructController;
 use App\Http\Controllers\Api\QuestionsController;
 use App\Http\Controllers\Api\TestController;
+use App\Http\Controllers\Api\TestTakingController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -80,6 +81,13 @@ Route::get('tests/{id}/constructs', [TestController::class, 'getConstructs']);
 Route::put('tests/{testId}/clusters/{clusterId}/category-counts', [TestController::class, 'setClusterCategoryCounts']);
 Route::post('tests/{id}/generate-questions', [TestController::class, 'generateQuestionSelection']);
 Route::post('tests/{id}/regenerate-questions', [TestController::class, 'regenerateQuestionSelection']);
+
+// Test Taking (User-facing endpoints)
+Route::get('tests/{testId}/take', [TestTakingController::class, 'getTestForUser']); // Get test with questions for user
+Route::post('tests/{testId}/submit', [TestTakingController::class, 'submitAnswers']); // Submit test answers
+Route::get('test-results/{testResultId}', [TestTakingController::class, 'getResults']); // Get specific test result
+Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user
+Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:

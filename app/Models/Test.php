@@ -59,6 +59,14 @@ class Test extends Model
             });
         })->where('is_active', true)->get();
     }
+
+    /**
+     * Get all test results for this test
+     */
+    public function testResults()
+    {
+        return $this->hasMany(TestResult::class);
+    }
 }
 
 
