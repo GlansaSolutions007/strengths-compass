@@ -29,8 +29,8 @@ Route::put('users/{id}', [UserController::class, 'update']);
 Route::get('options', [OptionsController::class, 'index']);
 Route::post('options', [OptionsController::class, 'store']);
 Route::get('options/{id}', [OptionsController::class, 'show']);
-// Route::put('options/{id}', [OptionsController::class, 'update']);
-// Route::delete('options/{id}', [OptionsController::class, 'destroy']);
+Route::put('options/{id}', [OptionsController::class, 'update']);
+Route::delete('options/{id}', [OptionsController::class, 'destroy']);
 
 // Cluster CRUD (public for now)
 Route::get('clusters', [ClusterController::class, 'index']);

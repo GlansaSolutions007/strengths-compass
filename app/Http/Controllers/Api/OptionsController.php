@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\OptionsModel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class OptionsController extends Controller
 {
@@ -85,7 +86,37 @@ class OptionsController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        //
+        $option = OptionsModel::find($id);
+        
+        if (!$option) {
+            return response()->json([
+                "data" => [],
+                "status" => 404,
+                "message" => "Option not found",
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'label' => 'sometimes|required|string|max:255',
+            'value' => 'sometimes|required|integer|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                "data" => [],
+                "status" => 422,
+                "errors" => $validator->errors(),
+                "message" => "Validation failed",
+            ], 422);
+        }
+
+        $option->update($request->only(['label', 'value']));
+
+        return response()->json([
+            "data" => $option,
+            "status" => 200,
+            "message" => "Option updated successfully",
+        ], 200);
     }
 
     /**
@@ -93,6 +124,22 @@ class OptionsController extends Controller
      */
     public function destroy(string $id)
     {
-        //
+        $option = OptionsModel::find($id);
+        
+        if (!$option) {
+            return response()->json([
+                "data" => [],
+                "status" => 404,
+                "message" => "Option not found",
+            ], 404);
+        }
+
+        $option->delete();
+
+        return response()->json([
+            "data" => [],
+            "status" => 200,
+            "message" => "Option deleted successfully",
+        ], 200);
     }
 }
