@@ -257,8 +257,8 @@ If you want to specify how many questions from each category (P, R, SDB):
     "clusters": [
       {
         "cluster_id": 1,
-        "p_count": 5,
-        "r_count": 5,
+        "p_count": 15,
+        "r_count": 25,
         "sdb_count": 2
       },
       {

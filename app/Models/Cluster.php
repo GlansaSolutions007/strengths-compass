@@ -11,7 +11,7 @@ class Cluster extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'short_code', 'description'];
+    protected $fillable = ['name', 'short_code', 'description','is_active', 'is_deleted'];
 
     public function constructs()
     {

@@ -21,7 +21,9 @@ class Construct extends Model
         'risks',
         'coaching_applications',
         'case_example',
-        'display_order'
+        'display_order',
+        'is_active',
+        'is_deleted'
     ];
 
     public function cluster()
