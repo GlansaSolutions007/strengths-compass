@@ -228,7 +228,7 @@ class TestTakingController extends Controller
     }
 
     /**
-     * Calculate cluster scores
+     * Calculate cluster scores (both totals and averages)
      */
     private function calculateClusterScores($userAnswers, $test)
     {
@@ -258,7 +258,7 @@ class TestTakingController extends Controller
             $clusterCounts[$clusterId]++;
         }
 
-        // Calculate average scores per cluster
+        // Calculate both total and average scores per cluster
         foreach ($clusterTotals as $clusterId => $total) {
             $count = $clusterCounts[$clusterId];
             $average = $count > 0 ? $total / $count : 0;
@@ -266,20 +266,25 @@ class TestTakingController extends Controller
             $cluster = $test->clusters->find($clusterId);
             $clusterName = $cluster ? $cluster->name : "Cluster {$clusterId}";
             
-            $clusterScores[$clusterName] = round($average, 2);
+            $clusterScores[$clusterName] = [
+                'total' => round($total, 2),
+                'average' => round($average, 2),
+                'count' => $count
+            ];
         }
 
         return $clusterScores;
     }
 
     /**
-     * Calculate construct scores
+     * Calculate construct scores (both totals and averages)
      */
     private function calculateConstructScores($userAnswers, $test)
     {
         $constructScores = [];
         $constructTotals = [];
         $constructCounts = [];
+        $constructNames = [];
 
         foreach ($userAnswers as $answer) {
             if (!$answer['include_in_construct']) {
@@ -297,28 +302,24 @@ class TestTakingController extends Controller
             if (!isset($constructTotals[$constructId])) {
                 $constructTotals[$constructId] = 0;
                 $constructCounts[$constructId] = 0;
+                $constructNames[$constructId] = $constructName;
             }
 
             $constructTotals[$constructId] += $answer['final_score'];
             $constructCounts[$constructId]++;
         }
 
-        // Calculate average scores per construct
+        // Calculate both total and average scores per construct
         foreach ($constructTotals as $constructId => $total) {
             $count = $constructCounts[$constructId];
             $average = $count > 0 ? $total / $count : 0;
+            $constructName = $constructNames[$constructId] ?? "Construct {$constructId}";
             
-            // Get construct name from any question in this construct
-            $constructName = "Construct {$constructId}";
-            foreach ($userAnswers as $answer) {
-                $question = QuestionsModel::with('construct')->find($answer['question_id']);
-                if ($question && $question->construct && $question->construct_id == $constructId) {
-                    $constructName = $question->construct->name;
-                    break;
-                }
-            }
-            
-            $constructScores[$constructName] = round($average, 2);
+            $constructScores[$constructName] = [
+                'total' => round($total, 2),
+                'average' => round($average, 2),
+                'count' => $count
+            ];
         }
 
         return $constructScores;
