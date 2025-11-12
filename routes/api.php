@@ -85,9 +85,10 @@ Route::post('tests/{id}/regenerate-questions', [TestController::class, 'regenera
 // Test Taking (User-facing endpoints)
 Route::get('tests/{testId}/take', [TestTakingController::class, 'getTestForUser']); // Get test with questions for user
 Route::post('tests/{testId}/submit', [TestTakingController::class, 'submitAnswers']); // Submit test answers
-Route::get('test-results/{testResultId}', [TestTakingController::class, 'getResults']); // Get specific test result
-Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user
-Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test
+Route::get('test-results/{testResultId}', [TestTakingController::class, 'getResults']); // Get specific test result (scores only)
+Route::get('test-results/{testResultId}/answers', [TestTakingController::class, 'getTestResultAnswers']); // Get questions and answers for a test result
+Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user (scores only)
+Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test (scores only)
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:

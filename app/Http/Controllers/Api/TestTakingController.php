@@ -352,11 +352,11 @@ class TestTakingController extends Controller
     }
 
     /**
-     * Get test results for a user
+     * Get test results for a user (lightweight - scores only)
      */
     public function getResults($testResultId)
     {
-        $testResult = TestResult::with(['test', 'user', 'answers.question.construct.cluster'])
+        $testResult = TestResult::with(['test', 'user'])
             ->find($testResultId);
 
         if (!$testResult) {
@@ -368,13 +368,106 @@ class TestTakingController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $testResult,
+            'data' => [
+                'test_result_id' => $testResult->id,
+                'test' => [
+                    'id' => $testResult->test->id,
+                    'title' => $testResult->test->title,
+                    'description' => $testResult->test->description,
+                ],
+                'user' => [
+                    'id' => $testResult->user->id,
+                    'name' => $testResult->user->name,
+                    'email' => $testResult->user->email,
+                ],
+                'scores' => [
+                    'total_score' => $testResult->total_score,
+                    'average_score' => $testResult->average_score,
+                    'cluster_scores' => $testResult->cluster_scores,
+                    'construct_scores' => $testResult->construct_scores,
+                    'sdb_flag' => $testResult->sdb_flag,
+                ],
+                'status' => $testResult->status,
+                'submitted_at' => $testResult->created_at,
+            ],
             'message' => 'Test result fetched successfully'
         ], 200);
     }
 
     /**
-     * Get all test results for a user
+     * Get questions and answers for a specific test result
+     * Use this endpoint to fetch detailed question/answer data separately
+     */
+    public function getTestResultAnswers($testResultId)
+    {
+        $testResult = TestResult::with(['test', 'user', 'answers.question.construct.cluster'])
+            ->find($testResultId);
+
+        if (!$testResult) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Test result not found'
+            ], 404);
+        }
+
+        // Get all options for answer labels
+        $options = OptionsModel::orderBy('value')->get()->keyBy('value');
+
+        // Get test's question order for proper sorting
+        $test = $testResult->test;
+        $test->load('selectedQuestions');
+        $questionOrder = $test->selectedQuestions->pluck('pivot.order_no', 'id')->toArray();
+
+        // Format questions with answers
+        $questionsWithAnswers = $testResult->answers->map(function ($answer) use ($options, $questionOrder) {
+            $question = $answer->question;
+            $optionLabel = $options->get($answer->answer_value);
+            
+            return [
+                'question_id' => $question->id,
+                'question_text' => $question->question_text,
+                'category' => $question->category,
+                'order_no' => $questionOrder[$question->id] ?? null,
+                'construct' => $question->construct ? [
+                    'id' => $question->construct->id,
+                    'name' => $question->construct->name,
+                    'cluster' => $question->construct->cluster ? [
+                        'id' => $question->construct->cluster->id,
+                        'name' => $question->construct->cluster->name,
+                    ] : null,
+                ] : null,
+                'answer' => [
+                    'answer_value' => $answer->answer_value,
+                    'answer_label' => $optionLabel ? $optionLabel->label : null,
+                    'final_score' => $answer->final_score,
+                ],
+            ];
+        })->sortBy(function ($item) use ($questionOrder) {
+            // Sort by test's question order if available, otherwise by question_id
+            return $item['order_no'] ?? $item['question_id'];
+        })->values();
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'test_result_id' => $testResult->id,
+                'test' => [
+                    'id' => $testResult->test->id,
+                    'title' => $testResult->test->title,
+                ],
+                'user' => [
+                    'id' => $testResult->user->id,
+                    'name' => $testResult->user->name,
+                ],
+                'questions_with_answers' => $questionsWithAnswers,
+                'total_questions' => $questionsWithAnswers->count(),
+            ],
+            'message' => 'Questions and answers fetched successfully'
+        ], 200);
+    }
+
+    /**
+     * Get all test results for a user (lightweight - scores only)
      */
     public function getUserResults($userId)
     {
@@ -383,15 +476,33 @@ class TestTakingController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
+        $formattedResults = $testResults->map(function ($testResult) {
+            return [
+                'test_result_id' => $testResult->id,
+                'test' => [
+                    'id' => $testResult->test->id,
+                    'title' => $testResult->test->title,
+                ],
+                'scores' => [
+                    'total_score' => $testResult->total_score,
+                    'average_score' => $testResult->average_score,
+                    'cluster_scores' => $testResult->cluster_scores,
+                    'construct_scores' => $testResult->construct_scores,
+                ],
+                'status' => $testResult->status,
+                'submitted_at' => $testResult->created_at,
+            ];
+        });
+
         return response()->json([
             'status' => true,
-            'data' => $testResults,
+            'data' => $formattedResults,
             'message' => 'User test results fetched successfully'
         ], 200);
     }
 
     /**
-     * Get all test results for a specific test
+     * Get all test results for a specific test (lightweight - scores only)
      */
     public function getTestResults($testId)
     {
@@ -400,9 +511,28 @@ class TestTakingController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
+        $formattedResults = $testResults->map(function ($testResult) {
+            return [
+                'test_result_id' => $testResult->id,
+                'user' => [
+                    'id' => $testResult->user->id,
+                    'name' => $testResult->user->name,
+                    'email' => $testResult->user->email,
+                ],
+                'scores' => [
+                    'total_score' => $testResult->total_score,
+                    'average_score' => $testResult->average_score,
+                    'cluster_scores' => $testResult->cluster_scores,
+                    'construct_scores' => $testResult->construct_scores,
+                ],
+                'status' => $testResult->status,
+                'submitted_at' => $testResult->created_at,
+            ];
+        });
+
         return response()->json([
             'status' => true,
-            'data' => $testResults,
+            'data' => $formattedResults,
             'message' => 'Test results fetched successfully'
         ], 200);
     }
