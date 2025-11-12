@@ -428,9 +428,8 @@ class TestController extends Controller
         
         $selectedQuestions = [];
         $errors = [];
-        $orderNo = 1;
 
-        // Process each cluster
+        // Process each cluster - collect questions WITHOUT order_no first
         foreach ($test->clusters as $cluster) {
             $pivot = $cluster->pivot;
             $pCount = $pivot->p_count ?? null;
@@ -449,7 +448,7 @@ class TestController extends Controller
                         'test_id' => $test->id,
                         'question_id' => $question->id,
                         'cluster_id' => $cluster->id,
-                        'order_no' => $orderNo++,
+                        // order_no will be assigned after shuffling
                     ];
                 }
                 continue;
@@ -486,7 +485,7 @@ class TestController extends Controller
                         'test_id' => $test->id,
                         'question_id' => $question->id,
                         'cluster_id' => $cluster->id,
-                        'order_no' => $orderNo++,
+                        // order_no will be assigned after shuffling
                     ];
                 }
             }
@@ -502,7 +501,7 @@ class TestController extends Controller
                         'test_id' => $test->id,
                         'question_id' => $question->id,
                         'cluster_id' => $cluster->id,
-                        'order_no' => $orderNo++,
+                        // order_no will be assigned after shuffling
                     ];
                 }
             }
@@ -518,7 +517,7 @@ class TestController extends Controller
                         'test_id' => $test->id,
                         'question_id' => $question->id,
                         'cluster_id' => $cluster->id,
-                        'order_no' => $orderNo++,
+                        // order_no will be assigned after shuffling
                     ];
                 }
             }
@@ -537,6 +536,16 @@ class TestController extends Controller
                 $seenQuestionIds[] = $sq['question_id'];
             }
         }
+
+        // Shuffle all questions to mix them randomly across clusters
+        shuffle($uniqueQuestions);
+
+        // Now assign sequential order_no after shuffling
+        $orderNo = 1;
+        foreach ($uniqueQuestions as &$question) {
+            $question['order_no'] = $orderNo++;
+        }
+        unset($question); // Break reference
 
         // Clear existing selections and insert new ones
         DB::table('test_question')->where('test_id', $test->id)->delete();
