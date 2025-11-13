@@ -183,6 +183,9 @@ class TestTakingController extends Controller
                 'sdb_flag' => $sdbFlag
             ]);
 
+            // Format radar chart data
+            $radarChartData = $this->formatRadarChartData($clusterScores);
+
             DB::commit();
 
             return response()->json([
@@ -195,6 +198,7 @@ class TestTakingController extends Controller
                     'cluster_scores' => $clusterScores,
                     'construct_scores' => $constructScores,
                     'sdb_flag' => $sdbFlag,
+                    'radar_chart' => $radarChartData,
                     'total_questions_answered' => count($answers)
                 ]
             ], 201);
@@ -352,6 +356,77 @@ class TestTakingController extends Controller
     }
 
     /**
+     * Format cluster scores for radar chart
+     * Returns data in format: { labels: [], datasets: [{ label: string, data: [] }] }
+     */
+    private function formatRadarChartData($clusterScores)
+    {
+        if (empty($clusterScores) || !is_array($clusterScores)) {
+            return [
+                'labels' => [],
+                'datasets' => [
+                    [
+                        'label' => 'Cluster Scores',
+                        'data' => [],
+                        'backgroundColor' => 'rgba(54, 162, 235, 0.2)',
+                        'borderColor' => 'rgba(54, 162, 235, 1)',
+                        'borderWidth' => 2,
+                        'pointBackgroundColor' => 'rgba(54, 162, 235, 1)',
+                        'pointBorderColor' => '#fff',
+                        'pointHoverBackgroundColor' => '#fff',
+                        'pointHoverBorderColor' => 'rgba(54, 162, 235, 1)',
+                    ]
+                ]
+            ];
+        }
+
+        $labels = [];
+        $data = [];
+        $maxValue = 0;
+
+        // Extract labels and average scores from cluster_scores
+        foreach ($clusterScores as $clusterName => $scores) {
+            $labels[] = $clusterName;
+            $average = $scores['average'] ?? 0;
+            $data[] = round($average, 2);
+            
+            // Track max value for scaling
+            if ($average > $maxValue) {
+                $maxValue = $average;
+            }
+        }
+
+        // Calculate maxValue: use fixed 5 for consistency, or ceil(max + 0.5) to add padding
+        // This ensures the chart scale is consistent and has some visual padding
+        $chartMaxValue = 5; // Fixed scale for 1-5 scoring system
+        if ($maxValue > 5) {
+            // If scores exceed 5 (due to weighting), use calculated max with padding
+            $chartMaxValue = ceil($maxValue + 0.5);
+        } elseif ($maxValue > 0 && $maxValue < 5) {
+            // If all scores are low, still use 5 for consistent scale across charts
+            $chartMaxValue = 5;
+        }
+
+        return [
+            'labels' => $labels,
+            'datasets' => [
+                [
+                    'label' => 'Cluster Scores',
+                    'data' => $data,
+                    'backgroundColor' => 'rgba(54, 162, 235, 0.2)',
+                    'borderColor' => 'rgba(54, 162, 235, 1)',
+                    'borderWidth' => 2,
+                    'pointBackgroundColor' => 'rgba(54, 162, 235, 1)',
+                    'pointBorderColor' => '#fff',
+                    'pointHoverBackgroundColor' => '#fff',
+                    'pointHoverBorderColor' => 'rgba(54, 162, 235, 1)',
+                ]
+            ],
+            'maxValue' => $chartMaxValue,
+        ];
+    }
+
+    /**
      * Get test results for a user (lightweight - scores only)
      */
     public function getResults($testResultId)
@@ -365,6 +440,9 @@ class TestTakingController extends Controller
                 'message' => 'Test result not found'
             ], 404);
         }
+
+        // Format radar chart data from cluster scores
+        $radarChartData = $this->formatRadarChartData($testResult->cluster_scores);
 
         return response()->json([
             'status' => true,
@@ -387,6 +465,7 @@ class TestTakingController extends Controller
                     'construct_scores' => $testResult->construct_scores,
                     'sdb_flag' => $testResult->sdb_flag,
                 ],
+                'radar_chart' => $radarChartData,
                 'status' => $testResult->status,
                 'submitted_at' => $testResult->created_at,
             ],
@@ -477,6 +556,8 @@ class TestTakingController extends Controller
             ->get();
 
         $formattedResults = $testResults->map(function ($testResult) {
+            $radarChartData = $this->formatRadarChartData($testResult->cluster_scores);
+            
             return [
                 'test_result_id' => $testResult->id,
                 'test' => [
@@ -489,6 +570,7 @@ class TestTakingController extends Controller
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
                 ],
+                'radar_chart' => $radarChartData,
                 'status' => $testResult->status,
                 'submitted_at' => $testResult->created_at,
             ];
@@ -512,6 +594,8 @@ class TestTakingController extends Controller
             ->get();
 
         $formattedResults = $testResults->map(function ($testResult) {
+            $radarChartData = $this->formatRadarChartData($testResult->cluster_scores);
+            
             return [
                 'test_result_id' => $testResult->id,
                 'user' => [
@@ -525,6 +609,7 @@ class TestTakingController extends Controller
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
                 ],
+                'radar_chart' => $radarChartData,
                 'status' => $testResult->status,
                 'submitted_at' => $testResult->created_at,
             ];
