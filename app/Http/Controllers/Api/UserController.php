@@ -11,17 +11,21 @@ use Illuminate\Support\Facades\Hash;
 class UserController extends Controller
 {
     /**
-     * List users (admin only) with pagination.
+     * List users with pagination.
+     * Admin only when authentication is enabled.
+     * Currently public for development/testing.
      */
     public function index(Request $request)
     {
         $currentUser = $request->user();
 
-        if (!$currentUser || $currentUser->role !== 'admin') {
+        // Check if authentication is enabled and user is not admin
+        // If auth middleware is not applied, $currentUser will be null and this check is skipped
+        if ($currentUser && $currentUser->role !== 'admin') {
             return response()->json([
-                'users' => [],
+                'user' => [],
                 'status' => 403,
-                'message' => 'Forbidden',
+                'message' => 'Forbidden - Admin access required',
             ], 403);
         }
 
@@ -45,6 +49,7 @@ class UserController extends Controller
     /**
      * Show a single user by id.
      * Admins can view any user; non-admins can only view themselves.
+     * Currently public for development/testing.
      */
     public function show(Request $request, int $id)
     {
@@ -59,14 +64,18 @@ class UserController extends Controller
             ], 404);
         }
 
-        $isAdmin = $currentUser && $currentUser->role === 'admin';
-        $isSelf = $currentUser && $currentUser->id === $user->id;
-        if (!$isAdmin && !$isSelf) {
-            return response()->json([
-                'user' => [],
-                'status' => 403,
-                'message' => 'Forbidden',
-            ], 403);
+        // Only enforce access control if user is authenticated
+        // If auth middleware is not applied, allow public access
+        if ($currentUser) {
+            $isAdmin = $currentUser->role === 'admin';
+            $isSelf = $currentUser->id === $user->id;
+            if (!$isAdmin && !$isSelf) {
+                return response()->json([
+                    'user' => [],
+                    'status' => 403,
+                    'message' => 'Forbidden - You can only view your own profile',
+                ], 403);
+            }
         }
 
         return response()->json([
