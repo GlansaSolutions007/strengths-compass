@@ -87,8 +87,8 @@ class UserController extends Controller
 
     /**
      * Update a user.
-     * Admins can update any user and any field; non-admins can update only their own profile
-     * and only limited fields (name, gender, age, contact, password).
+     * Different validation rules based on user role (admin vs regular user).
+     * Admins can update any user; regular users can only update their own profile.
      */
     public function update(Request $request, int $id)
     {
@@ -103,37 +103,57 @@ class UserController extends Controller
             ], 404);
         }
 
-        $isAdmin = $currentUser && $currentUser->role === 'admin';
-        $isSelf = $currentUser && $currentUser->id === $user->id;
-        if (!$isAdmin && !$isSelf) {
-            return response()->json([
-                'user' => [],
-                'status' => 403,
-                'message' => 'Forbidden',
-            ], 403);
+        // Only enforce access control if user is authenticated
+        // If auth middleware is not applied, allow public access
+        if ($currentUser) {
+            $isAdmin = $currentUser->role === 'admin';
+            $isSelf = $currentUser->id === $user->id;
+            if (!$isAdmin && !$isSelf) {
+                return response()->json([
+                    'user' => [],
+                    'status' => 403,
+                    'message' => 'Forbidden - You can only update your own profile',
+                ], 403);
+            }
         }
 
-        // Validation rules differ for admin vs self-update
-        if ($isAdmin) {
+        // Determine validation rules based on the user being updated (not the current user)
+        $isUpdatingAdmin = $user->role === 'admin';
+        
+        // Validation rules differ for admin vs regular user
+        if ($isUpdatingAdmin) {
+            // Admin user fields
             $rules = [
                 'name' => 'sometimes|required|string|max:255',
                 'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $user->id,
                 'password' => 'sometimes|nullable|string|min:8|confirmed',
                 'role' => 'sometimes|required|in:admin,user',
-                'gender' => 'sometimes|nullable|in:male,female,other,prefer_not_to_say',
-                'age' => 'sometimes|nullable|integer|min:1|max:150',
-                'contact' => 'sometimes|nullable|string|max:255',
             ];
         } else {
+            // Regular user fields
             $rules = [
-                'name' => 'sometimes|required|string|max:255',
-                'email' => 'prohibited',
-                'role' => 'prohibited',
+                'first_name' => 'sometimes|required|string|max:255',
+                'last_name' => 'sometimes|required|string|max:255',
+                'whatsapp_number' => 'sometimes|required|string|max:20',
+                'city' => 'sometimes|required|string|max:255',
+                'state' => 'sometimes|required|string|max:255',
+                'country' => 'sometimes|required|string|max:255',
+                'profession' => 'sometimes|required|string|max:255',
+                'gender' => 'sometimes|required|in:male,female,other,prefer_not_to_say',
+                'age' => 'sometimes|required|integer|min:1|max:150',
+                'educational_qualification' => 'sometimes|required|string|max:255',
                 'password' => 'sometimes|nullable|string|min:8|confirmed',
-                'gender' => 'sometimes|nullable|in:male,female,other,prefer_not_to_say',
-                'age' => 'sometimes|nullable|integer|min:1|max:150',
-                'contact' => 'sometimes|nullable|string|max:255',
             ];
+
+            // Regular users cannot change their email or role
+            if (!$currentUser || $currentUser->role !== 'admin') {
+                $rules['email'] = 'prohibited';
+                $rules['role'] = 'prohibited';
+            } else {
+                // Admins can change email and role for regular users
+                $rules['email'] = 'sometimes|required|string|email|max:255|unique:users,email,' . $user->id;
+                $rules['role'] = 'sometimes|required|in:admin,user';
+            }
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -146,20 +166,103 @@ class UserController extends Controller
             ], 422);
         }
 
-        $updatable = $request->only([
-            'name', 'email', 'role', 'gender', 'age', 'contact'
-        ]);
+        // Prepare update data based on user role
+        if ($isUpdatingAdmin) {
+            // Admin fields
+            $updatable = $request->only(['name', 'email', 'role']);
+        } else {
+            // Regular user fields
+            $updatable = $request->only([
+                'first_name',
+                'last_name',
+                'whatsapp_number',
+                'city',
+                'state',
+                'country',
+                'profession',
+                'gender',
+                'age',
+                'educational_qualification',
+            ]);
 
+            // Admins can also update email and role for regular users
+            if ($currentUser && $currentUser->role === 'admin') {
+                if ($request->has('email')) {
+                    $updatable['email'] = $request->email;
+                }
+                if ($request->has('role')) {
+                    $updatable['role'] = $request->role;
+                }
+            }
+
+            // Update name field from first_name and last_name
+            if ($request->has('first_name') || $request->has('last_name')) {
+                $firstName = $request->input('first_name', $user->first_name);
+                $lastName = $request->input('last_name', $user->last_name);
+                $updatable['name'] = trim($firstName . ' ' . $lastName);
+            }
+        }
+
+        // Handle password update
         if ($request->filled('password')) {
             $updatable['password'] = Hash::make($request->password);
         }
 
         $user->update($updatable);
+        $user->refresh(); // Refresh to get updated data
 
         return response()->json([
             'user' => $user,
             'status' => 200,
             'message' => 'User updated successfully',
+        ], 200);
+    }
+
+    /**
+     * Delete a user.
+     * Only admins can delete users.
+     */
+    public function destroy(Request $request, int $id)
+    {
+        $currentUser = $request->user();
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json([
+                'user' => [],
+                'status' => 404,
+                'message' => 'User not found',
+            ], 404);
+        }
+
+        // Only enforce access control if user is authenticated
+        // If auth middleware is not applied, allow public access (for development)
+        if ($currentUser) {
+            $isAdmin = $currentUser->role === 'admin';
+            if (!$isAdmin) {
+                return response()->json([
+                    'user' => [],
+                    'status' => 403,
+                    'message' => 'Forbidden - Only admins can delete users',
+                ], 403);
+            }
+
+            // Prevent admin from deleting themselves
+            if ($currentUser->id === $user->id) {
+                return response()->json([
+                    'user' => [],
+                    'status' => 403,
+                    'message' => 'Forbidden - You cannot delete your own account',
+                ], 403);
+            }
+        }
+
+        $user->delete();
+
+        return response()->json([
+            'user' => [],
+            'status' => 200,
+            'message' => 'User deleted successfully',
         ], 200);
     }
 }

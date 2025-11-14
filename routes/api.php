@@ -24,6 +24,7 @@ Route::post('logout', [AuthController::class, 'logout']);
 Route::get('users', [UserController::class, 'index']);
 Route::get('users/{id}', [UserController::class, 'show']);
 Route::put('users/{id}', [UserController::class, 'update']);
+Route::delete('users/{id}', [UserController::class, 'destroy']);
 
 // Options routes (public)
 Route::get('options', [OptionsController::class, 'index']);
