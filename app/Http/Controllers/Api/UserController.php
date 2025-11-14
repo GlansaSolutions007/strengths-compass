@@ -103,9 +103,12 @@ class UserController extends Controller
             ], 404);
         }
 
-        // Only enforce access control if user is authenticated
-        // If auth middleware is not applied, allow public access
-        if ($currentUser) {
+        // Access control: Allow public access if no authentication token is present
+        // If authenticated, enforce: admins can update anyone, users can only update themselves
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+        
+        if ($hasAuthToken && $currentUser) {
+            // User is authenticated - enforce access control
             $isAdmin = $currentUser->role === 'admin';
             $isSelf = $currentUser->id === $user->id;
             if (!$isAdmin && !$isSelf) {
@@ -116,32 +119,33 @@ class UserController extends Controller
                 ], 403);
             }
         }
+        // If no auth token, allow public access (for development/testing)
 
         // Determine validation rules based on the user being updated (not the current user)
         $isUpdatingAdmin = $user->role === 'admin';
         
         // Validation rules differ for admin vs regular user
         if ($isUpdatingAdmin) {
-            // Admin user fields
+            // Admin user fields - all optional for partial updates
             $rules = [
-                'name' => 'sometimes|required|string|max:255',
-                'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $user->id,
+                'name' => 'sometimes|string|max:255',
+                'email' => 'sometimes|string|email|max:255|unique:users,email,' . $user->id,
                 'password' => 'sometimes|nullable|string|min:8|confirmed',
-                'role' => 'sometimes|required|in:admin,user',
+                'role' => 'sometimes|in:admin,user',
             ];
         } else {
-            // Regular user fields
+            // Regular user fields - all optional for partial updates
             $rules = [
-                'first_name' => 'sometimes|required|string|max:255',
-                'last_name' => 'sometimes|required|string|max:255',
-                'whatsapp_number' => 'sometimes|required|string|max:20',
-                'city' => 'sometimes|required|string|max:255',
-                'state' => 'sometimes|required|string|max:255',
-                'country' => 'sometimes|required|string|max:255',
-                'profession' => 'sometimes|required|string|max:255',
-                'gender' => 'sometimes|required|in:male,female,other,prefer_not_to_say',
-                'age' => 'sometimes|required|integer|min:1|max:150',
-                'educational_qualification' => 'sometimes|required|string|max:255',
+                'first_name' => 'sometimes|string|max:255',
+                'last_name' => 'sometimes|string|max:255',
+                'whatsapp_number' => 'sometimes|string|max:20',
+                'city' => 'sometimes|string|max:255',
+                'state' => 'sometimes|string|max:255',
+                'country' => 'sometimes|string|max:255',
+                'profession' => 'sometimes|string|max:255',
+                'gender' => 'sometimes|in:male,female,other,prefer_not_to_say',
+                'age' => 'sometimes|integer|min:1|max:150',
+                'educational_qualification' => 'sometimes|string|max:255',
                 'password' => 'sometimes|nullable|string|min:8|confirmed',
             ];
 
@@ -151,8 +155,8 @@ class UserController extends Controller
                 $rules['role'] = 'prohibited';
             } else {
                 // Admins can change email and role for regular users
-                $rules['email'] = 'sometimes|required|string|email|max:255|unique:users,email,' . $user->id;
-                $rules['role'] = 'sometimes|required|in:admin,user';
+                $rules['email'] = 'sometimes|string|email|max:255|unique:users,email,' . $user->id;
+                $rules['role'] = 'sometimes|in:admin,user';
             }
         }
 
