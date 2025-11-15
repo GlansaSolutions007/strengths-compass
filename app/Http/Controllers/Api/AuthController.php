@@ -89,34 +89,75 @@ class AuthController extends Controller
         $user->refresh();
 
         // Send welcome email immediately after registration
+        // Use a separate try-catch to ensure registration doesn't fail if email fails
         try {
-            // Log email attempt
-            \Log::info('Sending welcome email to user', [
+            // Force flush logs to ensure we see the attempt
+            \Log::info('=== REGISTRATION: Starting email send process ===', [
                 'user_id' => $user->id,
                 'email' => $user->email,
+                'name' => $user->name ?? 'N/A',
             ]);
             
             // Validate email exists
             if (empty($user->email)) {
                 \Log::warning('Cannot send welcome email: user email is empty', ['user_id' => $user->id]);
             } else {
-                // Send email synchronously (not queued)
-                Mail::to($user->email)->send(new WelcomeMail($user));
+                // Test if we can render the view first
+                try {
+                    $view = view('emails.welcome', ['user' => $user]);
+                    $html = $view->render();
+                    \Log::info('Email view rendered successfully', ['size' => strlen($html)]);
+                } catch (\Exception $viewError) {
+                    \Log::error('Failed to render welcome email view', [
+                        'error' => $viewError->getMessage(),
+                        'file' => $viewError->getFile(),
+                        'line' => $viewError->getLine(),
+                    ]);
+                    throw $viewError;
+                }
                 
-                \Log::info('Welcome email sent successfully', [
+                // Send email synchronously (not queued)
+                \Log::info('Attempting to send welcome email via Mail::send()', [
                     'user_id' => $user->id,
                     'email' => $user->email,
                 ]);
+                
+                // Try sending with WelcomeMail mailable first
+                try {
+                    Mail::to($user->email)->send(new WelcomeMail($user));
+                    \Log::info('=== REGISTRATION: Welcome email sent successfully via WelcomeMail ===', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                    ]);
+                } catch (\Exception $mailError) {
+                    // If WelcomeMail fails, try with Mail::raw as fallback (like test email)
+                    \Log::warning('WelcomeMail failed, trying Mail::raw fallback', [
+                        'error' => $mailError->getMessage(),
+                    ]);
+                    
+                    $userName = $user->name ?? $user->first_name ?? 'there';
+                    Mail::raw("Hello {$userName},\n\nWelcome to Strengths Compass! Your account has been successfully created.\n\nBest regards,\nThe Strengths Compass Team", function ($message) use ($user) {
+                        $message->to($user->email)
+                                ->subject('Welcome to Strengths Compass!');
+                    });
+                    
+                    \Log::info('=== REGISTRATION: Welcome email sent successfully via Mail::raw fallback ===', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                    ]);
+                }
             }
         } catch (\Throwable $e) {
-            // Log the error but don't fail registration
-            \Log::error('Failed to send welcome email', [
+            // Log the error with full details but don't fail registration
+            \Log::error('=== REGISTRATION: Failed to send welcome email ===', [
                 'user_id' => $user->id ?? null,
                 'email' => $user->email ?? null,
                 'error' => $e->getMessage(),
                 'error_code' => $e->getCode(),
+                'error_class' => get_class($e),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
             ]);
         }
 
