@@ -88,37 +88,35 @@ class AuthController extends Controller
         // Refresh user to ensure all attributes are loaded
         $user->refresh();
 
-        // Send welcome email
+        // Send welcome email immediately after registration
         try {
-            \Log::info('Attempting to send welcome email', [
+            // Log email attempt
+            \Log::info('Sending welcome email to user', [
                 'user_id' => $user->id,
                 'email' => $user->email,
-                'name' => $user->name,
-                'first_name' => $user->first_name,
             ]);
             
-            // Ensure we have a valid email
+            // Validate email exists
             if (empty($user->email)) {
-                throw new \Exception('User email is empty');
+                \Log::warning('Cannot send welcome email: user email is empty', ['user_id' => $user->id]);
+            } else {
+                // Send email synchronously (not queued)
+                Mail::to($user->email)->send(new WelcomeMail($user));
+                
+                \Log::info('Welcome email sent successfully', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ]);
             }
-            
-            Mail::to($user->email)->send(new WelcomeMail($user));
-            
-            \Log::info('Welcome email sent successfully', [
-                'user_id' => $user->id,
-                'email' => $user->email,
-            ]);
         } catch (\Throwable $e) {
-            // Log the error with full details but don't fail registration if email fails
+            // Log the error but don't fail registration
             \Log::error('Failed to send welcome email', [
                 'user_id' => $user->id ?? null,
                 'email' => $user->email ?? null,
                 'error' => $e->getMessage(),
                 'error_code' => $e->getCode(),
-                'error_class' => get_class($e),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
             ]);
         }
 
