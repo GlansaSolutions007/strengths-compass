@@ -87,13 +87,26 @@ class AuthController extends Controller
 
         // Send welcome email
         try {
+            \Log::info('Attempting to send welcome email', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+            ]);
+            
             Mail::to($user->email)->send(new WelcomeMail($user));
+            
+            \Log::info('Welcome email sent successfully', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+            ]);
         } catch (\Exception $e) {
             // Log the error with full details but don't fail registration if email fails
             \Log::error('Failed to send welcome email', [
                 'user_id' => $user->id,
                 'email' => $user->email,
                 'error' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString()
             ]);
         }
