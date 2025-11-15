@@ -18,6 +18,7 @@ class AuthController extends Controller
      */
     public function register(Request $request)
     {
+        \Log::info("REGISTER METHOD HIT");
         $role = $request->input('role', 'user');
         
         // Base validation rules (common for all)
