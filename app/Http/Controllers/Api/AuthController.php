@@ -89,8 +89,13 @@ class AuthController extends Controller
         try {
             Mail::to($user->email)->send(new WelcomeMail($user));
         } catch (\Exception $e) {
-            // Log the error but don't fail registration if email fails
-            \Log::error('Failed to send welcome email: ' . $e->getMessage());
+            // Log the error with full details but don't fail registration if email fails
+            \Log::error('Failed to send welcome email', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
