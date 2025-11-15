@@ -84,13 +84,23 @@ class AuthController extends Controller
         }
 
         $user = User::create($userData);
+        
+        // Refresh user to ensure all attributes are loaded
+        $user->refresh();
 
         // Send welcome email
         try {
             \Log::info('Attempting to send welcome email', [
                 'user_id' => $user->id,
                 'email' => $user->email,
+                'name' => $user->name,
+                'first_name' => $user->first_name,
             ]);
+            
+            // Ensure we have a valid email
+            if (empty($user->email)) {
+                throw new \Exception('User email is empty');
+            }
             
             Mail::to($user->email)->send(new WelcomeMail($user));
             
@@ -98,13 +108,14 @@ class AuthController extends Controller
                 'user_id' => $user->id,
                 'email' => $user->email,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // Log the error with full details but don't fail registration if email fails
             \Log::error('Failed to send welcome email', [
-                'user_id' => $user->id,
-                'email' => $user->email,
+                'user_id' => $user->id ?? null,
+                'email' => $user->email ?? null,
                 'error' => $e->getMessage(),
                 'error_code' => $e->getCode(),
+                'error_class' => get_class($e),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString()
