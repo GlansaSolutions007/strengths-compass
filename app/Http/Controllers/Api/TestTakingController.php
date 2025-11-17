@@ -280,13 +280,14 @@ class TestTakingController extends Controller
     }
 
     /**
-     * Categorize score: 1-2 = low, 3 = medium, 4-5 = high
+     * Categorize score: 1-2.99 = low, 3-3.99 = medium, 4-5 = high
+     * Examples: 2.56 = low, 3.44 = medium, 4.2 = high
      */
     private function categorizeScore($score)
     {
-        if ($score <= 2) {
+        if ($score < 3) {
             return 'low';
-        } elseif ($score == 3) {
+        } elseif ($score < 4) {
             return 'medium';
         } else {
             return 'high';
