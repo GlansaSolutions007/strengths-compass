@@ -140,6 +140,7 @@ class TestTakingController extends Controller
 
                 // Calculate final score based on category
                 $finalScore = $this->calculateScore($answerValue, $category, $reverseScore, $weight);
+                $finalScore = round($finalScore, 2); // Round to 2 decimal places
 
                 // Store user answer
                 $userAnswer = UserAnswer::create([
@@ -166,6 +167,8 @@ class TestTakingController extends Controller
 
             // Calculate average score
             $averageScore = $questionCount > 0 ? $totalScore / $questionCount : 0;
+            $averageScore = round($averageScore, 2); // Round to 2 decimal places
+            $totalScore = round($totalScore, 2); // Round to 2 decimal places
 
             // Calculate cluster and construct scores
             $clusterScores = $this->calculateClusterScores($userAnswers, $test);

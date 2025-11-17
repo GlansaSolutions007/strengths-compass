@@ -22,6 +22,14 @@ class UserAnswer extends Model
     ];
 
     /**
+     * Get the final score rounded to 2 decimal places
+     */
+    public function getFinalScoreAttribute($value)
+    {
+        return $value !== null ? round((float) $value, 2) : null;
+    }
+
+    /**
      * Get the test result this answer belongs to
      */
     public function testResult()

@@ -22,12 +22,94 @@ class TestResult extends Model
     ];
 
     protected $casts = [
-        'cluster_scores' => 'array',
-        'construct_scores' => 'array',
         'sdb_flag' => 'boolean',
-        'total_score' => 'float',
-        'average_score' => 'float',
     ];
+
+    /**
+     * Get the total score rounded to 2 decimal places
+     */
+    public function getTotalScoreAttribute($value)
+    {
+        return $value !== null ? round((float) $value, 2) : null;
+    }
+
+    /**
+     * Get the average score rounded to 2 decimal places
+     */
+    public function getAverageScoreAttribute($value)
+    {
+        return $value !== null ? round((float) $value, 2) : null;
+    }
+
+    /**
+     * Get cluster scores with all values rounded to 2 decimal places
+     */
+    public function getClusterScoresAttribute($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        // Decode JSON if it's a string
+        if (is_string($value)) {
+            $value = json_decode($value, true);
+        }
+
+        if (empty($value) || !is_array($value)) {
+            return $value;
+        }
+
+        $rounded = [];
+        foreach ($value as $key => $scores) {
+            if (is_array($scores)) {
+                $rounded[$key] = [
+                    'total' => isset($scores['total']) ? round((float) $scores['total'], 2) : 0,
+                    'average' => isset($scores['average']) ? round((float) $scores['average'], 2) : 0,
+                    'count' => $scores['count'] ?? 0,
+                ];
+            } else {
+                // Handle legacy format where cluster_scores might be a simple key-value
+                $rounded[$key] = round((float) $scores, 2);
+            }
+        }
+
+        return $rounded;
+    }
+
+    /**
+     * Get construct scores with all values rounded to 2 decimal places
+     */
+    public function getConstructScoresAttribute($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        // Decode JSON if it's a string
+        if (is_string($value)) {
+            $value = json_decode($value, true);
+        }
+
+        if (empty($value) || !is_array($value)) {
+            return $value;
+        }
+
+        $rounded = [];
+        foreach ($value as $key => $scores) {
+            if (is_array($scores)) {
+                $rounded[$key] = [
+                    'total' => isset($scores['total']) ? round((float) $scores['total'], 2) : 0,
+                    'average' => isset($scores['average']) ? round((float) $scores['average'], 2) : 0,
+                    'count' => $scores['count'] ?? 0,
+                ];
+            } else {
+                // Handle legacy format where construct_scores might be a simple key-value
+                $rounded[$key] = round((float) $scores, 2);
+            }
+        }
+
+        return $rounded;
+    }
 
     /**
      * Get the user who took the test
