@@ -11,8 +11,10 @@ use App\Models\OptionsModel;
 use App\Models\QuestionsModel;
 use App\Models\ScoringRule;
 use App\Models\User;
+use App\Mail\TestCompletionMail;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 
 class TestTakingController extends Controller
 {
@@ -190,6 +192,44 @@ class TestTakingController extends Controller
             $radarChartData = $this->formatRadarChartData($clusterScores);
 
             DB::commit();
+
+            // Send test completion email to user
+            // Use a separate try-catch to ensure test submission doesn't fail if email fails
+            try {
+                $user = User::find($request->user_id);
+                if ($user && !empty($user->email)) {
+                    \Log::info('=== TEST SUBMISSION: Starting test completion email send process ===', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'test_id' => $testId,
+                        'test_result_id' => $testResult->id,
+                    ]);
+
+                    Mail::to($user->email)->send(new TestCompletionMail($user, $test, $testResult));
+                    
+                    \Log::info('=== TEST SUBMISSION: Test completion email sent successfully ===', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'test_result_id' => $testResult->id,
+                    ]);
+                } else {
+                    \Log::warning('Cannot send test completion email: user not found or email is empty', [
+                        'user_id' => $request->user_id,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                // Log the error but don't fail the test submission
+                \Log::error('=== TEST SUBMISSION: Failed to send test completion email ===', [
+                    'user_id' => $request->user_id ?? null,
+                    'test_result_id' => $testResult->id ?? null,
+                    'error' => $e->getMessage(),
+                    'error_code' => $e->getCode(),
+                    'error_class' => get_class($e),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
 
             return response()->json([
                 'status' => true,
