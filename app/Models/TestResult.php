@@ -14,6 +14,7 @@ class TestResult extends Model
         'test_id',
         'total_score',
         'average_score',
+        'overall_category',
         'cluster_scores',
         'construct_scores',
         'sdb_flag',
@@ -66,6 +67,7 @@ class TestResult extends Model
                     'total' => isset($scores['total']) ? round((float) $scores['total'], 2) : 0,
                     'average' => isset($scores['average']) ? round((float) $scores['average'], 2) : 0,
                     'count' => $scores['count'] ?? 0,
+                    'category' => $scores['category'] ?? null,
                 ];
             } else {
                 // Handle legacy format where cluster_scores might be a simple key-value
@@ -101,6 +103,7 @@ class TestResult extends Model
                     'total' => isset($scores['total']) ? round((float) $scores['total'], 2) : 0,
                     'average' => isset($scores['average']) ? round((float) $scores['average'], 2) : 0,
                     'count' => $scores['count'] ?? 0,
+                    'category' => $scores['category'] ?? null,
                 ];
             } else {
                 // Handle legacy format where construct_scores might be a simple key-value

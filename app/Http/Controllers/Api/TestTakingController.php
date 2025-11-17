@@ -179,10 +179,14 @@ class TestTakingController extends Controller
             // Check for SDB flag (if too many SDB questions have high scores)
             $sdbFlag = $this->checkSDBFlag($userAnswers);
 
+            // Calculate overall category based on average score
+            $overallCategory = $this->categorizeScore($averageScore);
+
             // Update test result with calculated scores
             $testResult->update([
                 'total_score' => $totalScore,
                 'average_score' => $averageScore,
+                'overall_category' => $overallCategory,
                 'cluster_scores' => $clusterScores,
                 'construct_scores' => $constructScores,
                 'sdb_flag' => $sdbFlag
@@ -238,6 +242,7 @@ class TestTakingController extends Controller
                     'test_result_id' => $testResult->id,
                     'total_score' => round($totalScore, 2),
                     'average_score' => round($averageScore, 2),
+                    'overall_category' => $overallCategory,
                     'cluster_scores' => $clusterScores,
                     'construct_scores' => $constructScores,
                     'sdb_flag' => $sdbFlag,
@@ -275,9 +280,23 @@ class TestTakingController extends Controller
     }
 
     /**
+     * Categorize score: 1-2 = low, 3 = medium, 4-5 = high
+     */
+    private function categorizeScore($score)
+    {
+        if ($score <= 2) {
+            return 'low';
+        } elseif ($score == 3) {
+            return 'medium';
+        } else {
+            return 'high';
+        }
+    }
+
+    /**
      * Calculate cluster scores (both totals and averages)
      */
-    private function calculateClusterScores($userAnswers, $test)
+private function calculateClusterScores($userAnswers, $test)
     {
         $clusterScores = [];
         $clusterTotals = [];
@@ -309,14 +328,16 @@ class TestTakingController extends Controller
         foreach ($clusterTotals as $clusterId => $total) {
             $count = $clusterCounts[$clusterId];
             $average = $count > 0 ? $total / $count : 0;
+            $average = round($average, 2);
             
             $cluster = $test->clusters->find($clusterId);
             $clusterName = $cluster ? $cluster->name : "Cluster {$clusterId}";
             
             $clusterScores[$clusterName] = [
                 'total' => round($total, 2),
-                'average' => round($average, 2),
-                'count' => $count
+                'average' => $average,
+                'count' => $count,
+                'category' => $this->categorizeScore($average)
             ];
         }
 
@@ -360,12 +381,14 @@ class TestTakingController extends Controller
         foreach ($constructTotals as $constructId => $total) {
             $count = $constructCounts[$constructId];
             $average = $count > 0 ? $total / $count : 0;
+            $average = round($average, 2);
             $constructName = $constructNames[$constructId] ?? "Construct {$constructId}";
             
             $constructScores[$constructName] = [
                 'total' => round($total, 2),
-                'average' => round($average, 2),
-                'count' => $count
+                'average' => $average,
+                'count' => $count,
+                'category' => $this->categorizeScore($average)
             ];
         }
 
@@ -504,6 +527,7 @@ class TestTakingController extends Controller
                 'scores' => [
                     'total_score' => $testResult->total_score,
                     'average_score' => $testResult->average_score,
+                    'overall_category' => $testResult->overall_category ?? $this->categorizeScore($testResult->average_score ?? 0),
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
                     'sdb_flag' => $testResult->sdb_flag,
