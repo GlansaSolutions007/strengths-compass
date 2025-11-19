@@ -171,6 +171,7 @@ class TestTakingController extends Controller
             $averageScore = $questionCount > 0 ? $totalScore / $questionCount : 0;
             $averageScore = round($averageScore, 2); // Round to 2 decimal places
             $totalScore = round($totalScore, 2); // Round to 2 decimal places
+            $averagePercentage = $this->convertToPercentage($averageScore);
 
             // Calculate cluster and construct scores
             $clusterScores = $this->calculateClusterScores($userAnswers, $test);
@@ -179,7 +180,7 @@ class TestTakingController extends Controller
             // Check for SDB flag (if too many SDB questions have high scores)
             $sdbFlag = $this->checkSDBFlag($userAnswers);
 
-            // Calculate overall category based on average score
+            // Calculate overall category based on average score (using percentage)
             $overallCategory = $this->categorizeScore($averageScore);
 
             // Update test result with calculated scores
@@ -242,6 +243,7 @@ class TestTakingController extends Controller
                     'test_result_id' => $testResult->id,
                     'total_score' => round($totalScore, 2),
                     'average_score' => round($averageScore, 2),
+                    'average_percentage' => round($averagePercentage, 0), // Rounded to whole number
                     'overall_category' => $overallCategory,
                     'cluster_scores' => $clusterScores,
                     'construct_scores' => $constructScores,
@@ -280,14 +282,30 @@ class TestTakingController extends Controller
     }
 
     /**
-     * Categorize score: 1-2.99 = low, 3-3.99 = medium, 4-5 = high
-     * Examples: 2.56 = low, 3.44 = medium, 4.2 = high
+     * Convert score from 1-5 scale to percentage
+     * Formula: ((score - 1) / 4) * 100
+     * Example: 3.57 -> ((3.57 - 1) / 4) * 100 = 64.25%
+     */
+    private function convertToPercentage($score)
+    {
+        if ($score <= 0) {
+            return 0;
+        }
+        $percentage = (($score - 1) / 4) * 100;
+        return round($percentage, 2);
+    }
+
+    /**
+     * Categorize based on percentage: 0-59 = low, 60-79 = medium, 80-100 = high
      */
     private function categorizeScore($score)
     {
-        if ($score < 3) {
+        // Convert to percentage first
+        $percentage = $this->convertToPercentage($score);
+        
+        if ($percentage < 60) {
             return 'low';
-        } elseif ($score < 4) {
+        } elseif ($percentage < 80) {
             return 'medium';
         } else {
             return 'high';
@@ -330,6 +348,7 @@ private function calculateClusterScores($userAnswers, $test)
             $count = $clusterCounts[$clusterId];
             $average = $count > 0 ? $total / $count : 0;
             $average = round($average, 2);
+            $percentage = $this->convertToPercentage($average);
             
             $cluster = $test->clusters->find($clusterId);
             $clusterName = $cluster ? $cluster->name : "Cluster {$clusterId}";
@@ -337,6 +356,7 @@ private function calculateClusterScores($userAnswers, $test)
             $clusterScores[$clusterName] = [
                 'total' => round($total, 2),
                 'average' => $average,
+                'percentage' => $percentage,
                 'count' => $count,
                 'category' => $this->categorizeScore($average)
             ];
@@ -383,11 +403,13 @@ private function calculateClusterScores($userAnswers, $test)
             $count = $constructCounts[$constructId];
             $average = $count > 0 ? $total / $count : 0;
             $average = round($average, 2);
+            $percentage = $this->convertToPercentage($average);
             $constructName = $constructNames[$constructId] ?? "Construct {$constructId}";
             
             $constructScores[$constructName] = [
                 'total' => round($total, 2),
                 'average' => $average,
+                'percentage' => $percentage,
                 'count' => $count,
                 'category' => $this->categorizeScore($average)
             ];
@@ -528,6 +550,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'scores' => [
                     'total_score' => $testResult->total_score,
                     'average_score' => $testResult->average_score,
+                    'average_percentage' => round($this->convertToPercentage($testResult->average_score ?? 0), 0), // Rounded to whole number
                     'overall_category' => $testResult->overall_category ?? $this->categorizeScore($testResult->average_score ?? 0),
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
@@ -635,6 +658,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'scores' => [
                     'total_score' => $testResult->total_score,
                     'average_score' => $testResult->average_score,
+                    'average_percentage' => round($this->convertToPercentage($testResult->average_score ?? 0), 0), // Rounded to whole number
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
                 ],
@@ -674,6 +698,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'scores' => [
                     'total_score' => $testResult->total_score,
                     'average_score' => $testResult->average_score,
+                    'average_percentage' => round($this->convertToPercentage($testResult->average_score ?? 0), 0), // Rounded to whole number
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
                 ],

@@ -66,6 +66,7 @@ class TestResult extends Model
                 $rounded[$key] = [
                     'total' => isset($scores['total']) ? round((float) $scores['total'], 2) : 0,
                     'average' => isset($scores['average']) ? round((float) $scores['average'], 2) : 0,
+                    'percentage' => isset($scores['percentage']) ? round((float) $scores['percentage'], 0) : null, // Rounded to whole number
                     'count' => $scores['count'] ?? 0,
                     'category' => $scores['category'] ?? null,
                 ];
@@ -102,6 +103,7 @@ class TestResult extends Model
                 $rounded[$key] = [
                     'total' => isset($scores['total']) ? round((float) $scores['total'], 2) : 0,
                     'average' => isset($scores['average']) ? round((float) $scores['average'], 2) : 0,
+                    'percentage' => isset($scores['percentage']) ? round((float) $scores['percentage'], 0) : null, // Rounded to whole number
                     'count' => $scores['count'] ?? 0,
                     'category' => $scores['category'] ?? null,
                 ];
