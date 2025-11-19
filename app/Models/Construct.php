@@ -16,6 +16,7 @@ class Construct extends Model
         'description',
         'definition',
         'high_behavior',
+        'medium_behavior',
         'low_behavior',
         'benefits',
         'risks',
