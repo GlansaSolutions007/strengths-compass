@@ -38,10 +38,12 @@ class ReportController extends Controller
             ]);
         }
 
+        // Load report with test result and its relationships
+        $report->load(['testResult.user', 'testResult.test']);
+
         return response()->json([
             'data' => [
-                'report' => $report->load('testResult'),
-                'test_result' => $testResult,
+                'report' => $report,
             ],
             'status' => 200,
             'message' => 'Report retrieved successfully',
