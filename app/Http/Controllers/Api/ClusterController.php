@@ -47,6 +47,9 @@ class ClusterController extends Controller
             'name' => 'required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'high_behaviour' => 'nullable|string',
+            'medium_behaviour' => 'nullable|string',
+            'low_behaviour' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -56,7 +59,7 @@ class ClusterController extends Controller
             ], 422);
         }
 
-        $cluster = Cluster::create($request->only('name', 'short_code', 'description'));
+        $cluster = Cluster::create($request->only('name', 'short_code', 'description', 'high_behaviour', 'medium_behaviour', 'low_behaviour'));
 
         return response()->json([
             'status' => true,
@@ -81,6 +84,9 @@ class ClusterController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
+            'high_behaviour' => 'nullable|string',
+            'medium_behaviour' => 'nullable|string',
+            'low_behaviour' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -90,7 +96,7 @@ class ClusterController extends Controller
             ], 422);
         }
 
-        $cluster->update($request->only('name', 'short_code', 'description'));
+        $cluster->update($request->only('name', 'short_code', 'description', 'high_behaviour', 'medium_behaviour', 'low_behaviour'));
 
         return response()->json([
             'status' => true,
