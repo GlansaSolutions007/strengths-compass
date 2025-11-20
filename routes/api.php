@@ -97,6 +97,7 @@ Route::get('test-results/{testResultId}/report', [ReportController::class, 'getR
 Route::post('test-results/{testResultId}/report/pdf', [ReportController::class, 'storePdf']); // Store PDF file from frontend
 Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report
 Route::get('test-results/{testResultId}/report/view', [ReportController::class, 'viewPdf']); // View PDF report in browser
+Route::put('test-results/{testResultId}/report', [ReportController::class, 'updateReportContent']); // Update report summary/recommendations
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:

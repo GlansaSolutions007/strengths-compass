@@ -349,6 +349,64 @@ class ReportController extends Controller
     }
 
     /**
+     * Update report content (summary, recommendations, etc.)
+     */
+    public function updateReportContent(Request $request, $testResultId)
+    {
+        $testResult = TestResult::with('report')->find($testResultId);
+
+        if (!$testResult) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'Test result not found',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'report_summary' => 'sometimes|nullable|string',
+            'recommendations' => 'sometimes|nullable|string',
+            'application_matrix' => 'sometimes|nullable|array',
+            'radar_data' => 'sometimes|nullable|array',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $report = $testResult->report;
+
+        if (!$report) {
+            $report = TestReport::create([
+                'test_result_id' => $testResult->id,
+            ]);
+        }
+
+        $report->fill([
+            'report_summary' => $request->input('report_summary', $report->report_summary),
+            'recommendations' => $request->input('recommendations', $report->recommendations),
+            'application_matrix' => $request->input('application_matrix', $report->application_matrix),
+            'radar_data' => $request->input('radar_data', $report->radar_data),
+            'generated_at' => now(),
+        ]);
+
+        $report->save();
+
+        return response()->json([
+            'data' => [
+                'report' => $report->fresh(),
+            ],
+            'status' => 200,
+            'message' => 'Report content updated successfully',
+        ], 200);
+    }
+
+    /**
      * Convert cluster scores into percentage insights
      */
     private function calculateClusterInsights($clusterScores): array
