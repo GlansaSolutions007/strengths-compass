@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ConstructController;
 use App\Http\Controllers\Api\QuestionsController;
 use App\Http\Controllers\Api\TestController;
 use App\Http\Controllers\Api\TestTakingController;
+use App\Http\Controllers\Api\ReportController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -90,6 +91,11 @@ Route::get('test-results/{testResultId}', [TestTakingController::class, 'getResu
 Route::get('test-results/{testResultId}/answers', [TestTakingController::class, 'getTestResultAnswers']); // Get questions and answers for a test result
 Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user (scores only)
 Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test (scores only)
+
+// Report routes
+Route::get('test-results/{testResultId}/report', [ReportController::class, 'getReport']); // Get report data for a test result
+Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report
+Route::get('test-results/{testResultId}/report/view', [ReportController::class, 'viewPdf']); // View PDF report in browser
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:

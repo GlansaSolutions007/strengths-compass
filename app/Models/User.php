@@ -29,6 +29,7 @@ class User extends Authenticatable
         'age',
         'contact',
         'whatsapp_number',
+        'contact_number',
         'city',
         'state',
         'country',

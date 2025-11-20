@@ -37,6 +37,7 @@ class AuthController extends Controller
             $rules['first_name'] = 'required|string|max:255';
             $rules['last_name'] = 'required|string|max:255';
             $rules['whatsapp_number'] = 'required|string|max:20';
+            $rules['contact_number'] = 'required|string|max:20';
             $rules['city'] = 'required|string|max:255';
             $rules['state'] = 'required|string|max:255';
             $rules['country'] = 'required|string|max:255';
@@ -72,6 +73,7 @@ class AuthController extends Controller
             $userData['first_name'] = $request->first_name;
             $userData['last_name'] = $request->last_name;
             $userData['whatsapp_number'] = $request->whatsapp_number;
+            $userData['contact_number'] = $request->contact_number;
             $userData['city'] = $request->city;
             $userData['state'] = $request->state;
             $userData['country'] = $request->country;
