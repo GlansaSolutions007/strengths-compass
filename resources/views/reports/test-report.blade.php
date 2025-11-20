@@ -150,6 +150,62 @@
             min-height: 200px;
         }
 
+        .cluster-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+        }
+
+        .cluster-table th,
+        .cluster-table td {
+            border: 1px solid #e0e0e0;
+            padding: 8px 10px;
+            text-align: left;
+        }
+
+        .cluster-table th {
+            background: #f3f4f6;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .cluster-table td:last-child {
+            font-weight: bold;
+        }
+
+        .radar-wrapper {
+            text-align: center;
+            padding: 10px;
+        }
+
+        .radar-chart {
+            width: 320px;
+            height: 320px;
+            margin: 0 auto;
+        }
+
+        .radar-chart circle.level {
+            fill: none;
+            stroke: #dbeafe;
+            stroke-width: 0.8;
+        }
+
+        .radar-chart line.axis {
+            stroke: #c7d2fe;
+            stroke-width: 0.9;
+        }
+
+        .radar-chart polygon.data {
+            fill: rgba(102, 126, 234, 0.35);
+            stroke: #6366f1;
+            stroke-width: 1.5;
+        }
+
+        .radar-chart text {
+            font-size: 10px;
+            fill: #4b5563;
+        }
+
         .report-content p {
             margin-bottom: 15px;
             text-align: justify;
@@ -247,32 +303,54 @@
             </div>
         </div>
 
+        <!-- Cluster Radar Chart -->
+        @if(!empty($radarChartData))
+        <div class="section">
+            <div class="section-title">Cluster Radar Chart</div>
+            <div class="radar-wrapper">
+                <svg class="radar-chart" width="{{ $radarChartData['width'] }}" height="{{ $radarChartData['height'] }}">
+                    @foreach($radarChartData['circles'] as $circle)
+                    <circle class="level" cx="{{ $radarChartData['center_x'] }}" cy="{{ $radarChartData['center_y'] }}" r="{{ $circle }}"></circle>
+                    @endforeach
+
+                    @foreach($radarChartData['axes'] as $axis)
+                    <line class="axis" x1="{{ $axis['x1'] }}" y1="{{ $axis['y1'] }}" x2="{{ $axis['x2'] }}" y2="{{ $axis['y2'] }}"></line>
+                    @endforeach
+
+                    <polygon class="data" points="{{ $radarChartData['polygon_points'] }}"></polygon>
+
+                    @foreach($radarChartData['labels'] as $label)
+                    <text x="{{ $label['x'] }}" y="{{ $label['y'] }}" text-anchor="{{ $label['anchor'] }}">{{ $label['text'] }}</text>
+                    @endforeach
+                </svg>
+            </div>
+        </div>
+        @endif
+
         <!-- Cluster Scores Section -->
-        @if(isset($clusterScores) && !empty($clusterScores))
+        @if(isset($clusterInsights) && !empty($clusterInsights))
         <div class="section">
             <div class="section-title">Cluster Scores</div>
-            <div class="scores-section">
-                @foreach($clusterScores as $cluster => $score)
-                <div class="score-item">
-                    <div class="score-item-inner">
-                        <span class="score-label">{{ $cluster }}</span>
-                        <span class="score-value">
-                            @if(is_array($score))
-                                @if(isset($score['average']))
-                                    {{ number_format($score['average'], 2) }} ({{ $score['percentage'] ?? 'N/A' }}%)
-                                @else
-                                    {{ number_format($score['total'] ?? 0, 2) }}
-                                @endif
-                            @elseif(is_numeric($score))
-                                {{ number_format($score, 2) }}
-                            @else
-                                {{ $score }}
-                            @endif
-                        </span>
-                    </div>
-                </div>
-                @endforeach
-            </div>
+            <table class="cluster-table">
+                <thead>
+                    <tr>
+                        <th>Cluster</th>
+                        <th>Average</th>
+                        <th>Converted %</th>
+                        <th>Band</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($clusterInsights as $insight)
+                    <tr>
+                        <td>{{ $insight['name'] }}</td>
+                        <td>{{ number_format($insight['average'], 2) }}</td>
+                        <td>{{ $insight['percentage'] }}%</td>
+                        <td>{{ $insight['strength_band'] }}</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
         </div>
         @endif
 

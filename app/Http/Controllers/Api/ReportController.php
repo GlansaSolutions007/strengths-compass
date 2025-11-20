@@ -42,9 +42,14 @@ class ReportController extends Controller
         // Load report with test result and its relationships
         $report->load(['testResult.user', 'testResult.test']);
 
+        $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
+        $radarChart = $this->buildRadarChartData($clusterInsights);
+
         return response()->json([
             'data' => [
                 'report' => $report,
+                'cluster_insights' => $clusterInsights,
+                'radar_chart' => $radarChart,
             ],
             'status' => 200,
             'message' => 'Report retrieved successfully',
@@ -76,6 +81,9 @@ class ReportController extends Controller
             ]);
         }
 
+        $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
+        $radarChart = $this->buildRadarChartData($clusterInsights);
+
         // Prepare data for PDF
         $data = [
             'testResult' => $testResult,
@@ -86,6 +94,8 @@ class ReportController extends Controller
             'constructScores' => $testResult->construct_scores,
             'totalScore' => $testResult->total_score,
             'averageScore' => $testResult->average_score,
+            'clusterInsights' => $clusterInsights,
+            'radarChartData' => $radarChart,
         ];
 
         // Generate PDF using container binding (more reliable than facade)
@@ -153,6 +163,9 @@ class ReportController extends Controller
             ]);
         }
 
+        $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
+        $radarChart = $this->buildRadarChartData($clusterInsights);
+
         // Prepare data for PDF
         $data = [
             'testResult' => $testResult,
@@ -163,6 +176,8 @@ class ReportController extends Controller
             'constructScores' => $testResult->construct_scores,
             'totalScore' => $testResult->total_score,
             'averageScore' => $testResult->average_score,
+            'clusterInsights' => $clusterInsights,
+            'radarChartData' => $radarChart,
         ];
 
         // Generate PDF using container binding (more reliable than facade)
@@ -307,6 +322,148 @@ class ReportController extends Controller
                 'message' => 'Error storing PDF: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Convert cluster scores into percentage insights
+     */
+    private function calculateClusterInsights($clusterScores): array
+    {
+        if (empty($clusterScores) || !is_array($clusterScores)) {
+            return [];
+        }
+
+        $insights = [];
+
+        foreach ($clusterScores as $name => $score) {
+            $average = null;
+
+            if (is_array($score)) {
+                if (isset($score['average'])) {
+                    $average = (float) $score['average'];
+                } elseif (isset($score['total'], $score['count']) && (float) $score['count'] > 0) {
+                    $average = (float) $score['total'] / (float) $score['count'];
+                }
+            } else {
+                $average = (float) $score;
+            }
+
+            if ($average === null) {
+                continue;
+            }
+
+            $percentage = $this->convertScoreToPercentage($average);
+
+            $insights[] = [
+                'name' => $name,
+                'average' => round($average, 2),
+                'percentage' => $percentage,
+                'strength_band' => $this->getStrengthCategory($percentage),
+            ];
+        }
+
+        return $insights;
+    }
+
+    /**
+     * Convert 1-5 average to percentage (0-100)
+     */
+    private function convertScoreToPercentage(?float $average): int
+    {
+        if ($average === null) {
+            return 0;
+        }
+
+        $shifted = max(0, min(4, $average - 1));
+        $normalized = $shifted / 4;
+        $percentage = round($normalized * 100);
+
+        return max(0, min(100, (int) $percentage));
+    }
+
+    /**
+     * Determine strength category by percentage
+     */
+    private function getStrengthCategory(int $percentage): string
+    {
+        if ($percentage >= 80) {
+            return 'High';
+        }
+
+        if ($percentage >= 60) {
+            return 'Medium';
+        }
+
+        return 'Low';
+    }
+
+    /**
+     * Build radar chart data for SVG rendering
+     */
+    private function buildRadarChartData(array $clusterInsights): ?array
+    {
+        $count = count($clusterInsights);
+
+        if ($count === 0) {
+            return null;
+        }
+
+        $width = 320;
+        $height = 320;
+        $centerX = $width / 2;
+        $centerY = $height / 2;
+        $radius = min($centerX, $centerY) - 24;
+        $levels = 4;
+
+        $circles = [];
+        for ($i = 1; $i <= $levels; $i++) {
+            $circles[] = $radius * ($i / $levels);
+        }
+
+        $axes = [];
+        $labels = [];
+        $polygonPoints = [];
+
+        foreach ($clusterInsights as $index => $cluster) {
+            $angle = (2 * pi() * $index / $count) - (pi() / 2);
+            $axisX = $centerX + $radius * cos($angle);
+            $axisY = $centerY + $radius * sin($angle);
+
+            $axes[] = [
+                'x1' => round($centerX, 2),
+                'y1' => round($centerY, 2),
+                'x2' => round($axisX, 2),
+                'y2' => round($axisY, 2),
+            ];
+
+            $valueRadius = $radius * ($cluster['percentage'] / 100);
+            $valueX = $centerX + $valueRadius * cos($angle);
+            $valueY = $centerY + $valueRadius * sin($angle);
+            $polygonPoints[] = round($valueX, 2) . ',' . round($valueY, 2);
+
+            $labelRadius = $radius + 18;
+            $labelX = $centerX + $labelRadius * cos($angle);
+            $labelY = $centerY + $labelRadius * sin($angle);
+
+            $labels[] = [
+                'text' => $cluster['name'],
+                'x' => round($labelX, 2),
+                'y' => round($labelY, 2),
+                'anchor' => $labelX >= $centerX ? 'start' : 'end',
+            ];
+        }
+
+        return [
+            'width' => $width,
+            'height' => $height,
+            'center_x' => round($centerX, 2),
+            'center_y' => round($centerY, 2),
+            'radius' => $radius,
+            'circles' => $circles,
+            'axes' => $axes,
+            'labels' => $labels,
+            'polygon_points' => implode(' ', $polygonPoints),
+        ];
     }
 }
 
