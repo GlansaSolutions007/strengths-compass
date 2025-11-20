@@ -16,7 +16,7 @@
             font-size: 12px;
             line-height: 1.6;
             color: #333;
-            background: #fff;
+            background: #000;
         }
 
         .header {
