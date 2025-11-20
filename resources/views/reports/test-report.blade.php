@@ -173,6 +173,35 @@
             font-weight: bold;
         }
 
+        .detail-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 15px;
+        }
+
+        .detail-card h4 {
+            font-size: 14px;
+            color: #4f46e5;
+            margin-bottom: 8px;
+        }
+
+        .detail-card h5 {
+            font-size: 13px;
+            margin-top: 10px;
+            margin-bottom: 6px;
+            color: #374151;
+        }
+
+        .detail-card p {
+            margin-bottom: 6px;
+        }
+
+        .behaviour-list p {
+            margin-bottom: 4px;
+        }
+
         .radar-wrapper {
             text-align: center;
             padding: 10px;
@@ -351,6 +380,65 @@
                     @endforeach
                 </tbody>
             </table>
+        </div>
+        @endif
+
+        <!-- Cluster Details Section -->
+        @if(!empty($clusterDetails))
+        <div class="section">
+            <div class="section-title">Cluster Details</div>
+            @foreach($clusterDetails as $cluster)
+            <div class="detail-card">
+                <h4>{{ $cluster['name'] }}</h4>
+                @if(!empty($cluster['description']))
+                <p>{{ $cluster['description'] }}</p>
+                @endif
+                <div class="behaviour-list">
+                    @if(!empty($cluster['high_behaviour']))
+                    <h5>High Behaviour</h5>
+                    <p>{{ $cluster['high_behaviour'] }}</p>
+                    @endif
+                    @if(!empty($cluster['medium_behaviour']))
+                    <h5>Medium Behaviour</h5>
+                    <p>{{ $cluster['medium_behaviour'] }}</p>
+                    @endif
+                    @if(!empty($cluster['low_behaviour']))
+                    <h5>Low Behaviour</h5>
+                    <p>{{ $cluster['low_behaviour'] }}</p>
+                    @endif
+                </div>
+            </div>
+            @endforeach
+        </div>
+        @endif
+
+        <!-- Construct Details Section -->
+        @if(!empty($constructDetails))
+        <div class="section">
+            <div class="section-title">Construct Details</div>
+            @foreach($constructDetails as $construct)
+            <div class="detail-card">
+                <h4>{{ $construct['name'] }}</h4>
+                <p><strong>Cluster:</strong> {{ $construct['cluster_name'] }}</p>
+                @if(!empty($construct['description']))
+                <p>{{ $construct['description'] }}</p>
+                @endif
+                <div class="behaviour-list">
+                    @if(!empty($construct['high_behavior']))
+                    <h5>High Behaviour</h5>
+                    <p>{{ $construct['high_behavior'] }}</p>
+                    @endif
+                    @if(!empty($construct['medium_behavior']))
+                    <h5>Medium Behaviour</h5>
+                    <p>{{ $construct['medium_behavior'] }}</p>
+                    @endif
+                    @if(!empty($construct['low_behavior']))
+                    <h5>Low Behaviour</h5>
+                    <p>{{ $construct['low_behavior'] }}</p>
+                    @endif
+                </div>
+            </div>
+            @endforeach
         </div>
         @endif
 

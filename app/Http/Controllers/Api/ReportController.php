@@ -18,7 +18,11 @@ class ReportController extends Controller
      */
     public function getReport($testResultId)
     {
-        $testResult = TestResult::with(['user', 'test', 'report'])->find($testResultId);
+        $testResult = TestResult::with([
+            'user',
+            'test.clusters.constructs',
+            'report'
+        ])->find($testResultId);
 
         if (!$testResult) {
             return response()->json([
@@ -44,12 +48,16 @@ class ReportController extends Controller
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
         $radarChart = $this->buildRadarChartData($clusterInsights);
+        $clusterDetails = $this->buildClusterDetails($testResult);
+        $constructDetails = $this->buildConstructDetails($clusterDetails);
 
         return response()->json([
             'data' => [
                 'report' => $report,
                 'cluster_insights' => $clusterInsights,
                 'radar_chart' => $radarChart,
+                'cluster_details' => $clusterDetails,
+                'construct_details' => $constructDetails,
             ],
             'status' => 200,
             'message' => 'Report retrieved successfully',
@@ -61,7 +69,11 @@ class ReportController extends Controller
      */
     public function downloadPdf($testResultId)
     {
-        $testResult = TestResult::with(['user', 'test', 'report'])->find($testResultId);
+        $testResult = TestResult::with([
+            'user',
+            'test.clusters.constructs',
+            'report'
+        ])->find($testResultId);
 
         if (!$testResult) {
             return response()->json([
@@ -83,6 +95,8 @@ class ReportController extends Controller
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
         $radarChart = $this->buildRadarChartData($clusterInsights);
+        $clusterDetails = $this->buildClusterDetails($testResult);
+        $constructDetails = $this->buildConstructDetails($clusterDetails);
 
         // Prepare data for PDF
         $data = [
@@ -96,6 +110,8 @@ class ReportController extends Controller
             'averageScore' => $testResult->average_score,
             'clusterInsights' => $clusterInsights,
             'radarChartData' => $radarChart,
+            'clusterDetails' => $clusterDetails,
+            'constructDetails' => $constructDetails,
         ];
 
         // Generate PDF using container binding (more reliable than facade)
@@ -143,7 +159,11 @@ class ReportController extends Controller
      */
     public function viewPdf($testResultId)
     {
-        $testResult = TestResult::with(['user', 'test', 'report'])->find($testResultId);
+        $testResult = TestResult::with([
+            'user',
+            'test.clusters.constructs',
+            'report'
+        ])->find($testResultId);
 
         if (!$testResult) {
             return response()->json([
@@ -165,6 +185,8 @@ class ReportController extends Controller
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
         $radarChart = $this->buildRadarChartData($clusterInsights);
+        $clusterDetails = $this->buildClusterDetails($testResult);
+        $constructDetails = $this->buildConstructDetails($clusterDetails);
 
         // Prepare data for PDF
         $data = [
@@ -178,6 +200,8 @@ class ReportController extends Controller
             'averageScore' => $testResult->average_score,
             'clusterInsights' => $clusterInsights,
             'radarChartData' => $radarChart,
+            'clusterDetails' => $clusterDetails,
+            'constructDetails' => $constructDetails,
         ];
 
         // Generate PDF using container binding (more reliable than facade)
@@ -464,6 +488,71 @@ class ReportController extends Controller
             'labels' => $labels,
             'polygon_points' => implode(' ', $polygonPoints),
         ];
+    }
+
+    /**
+     * Build descriptive cluster list with behaviours and constructs
+     */
+    private function buildClusterDetails(TestResult $testResult): array
+    {
+        if (!$testResult->test) {
+            return [];
+        }
+
+        $clusters = $testResult->test->clusters ?? collect();
+
+        if ($clusters->isEmpty()) {
+            return [];
+        }
+
+        return $clusters->map(function ($cluster) {
+            return [
+                'id' => $cluster->id,
+                'name' => $cluster->name,
+                'description' => $cluster->description,
+                'high_behaviour' => $cluster->high_behaviour ?? $cluster->high_behavior ?? null,
+                'medium_behaviour' => $cluster->medium_behaviour ?? $cluster->medium_behavior ?? null,
+                'low_behaviour' => $cluster->low_behaviour ?? $cluster->low_behavior ?? null,
+                'constructs' => $cluster->constructs
+                    ? $cluster->constructs->map(function ($construct) {
+                        return [
+                            'id' => $construct->id,
+                            'name' => $construct->name,
+                            'description' => $construct->description ?? $construct->definition,
+                            'high_behavior' => $construct->high_behavior,
+                            'medium_behavior' => $construct->medium_behavior,
+                            'low_behavior' => $construct->low_behavior,
+                        ];
+                    })->values()->all()
+                    : [],
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * Flatten constructs list for easy consumption
+     */
+    private function buildConstructDetails(array $clusterDetails): array
+    {
+        if (empty($clusterDetails)) {
+            return [];
+        }
+
+        $constructs = [];
+
+        foreach ($clusterDetails as $cluster) {
+            if (empty($cluster['constructs'])) {
+                continue;
+            }
+
+            foreach ($cluster['constructs'] as $construct) {
+                $constructs[] = array_merge($construct, [
+                    'cluster_name' => $cluster['name'],
+                ]);
+            }
+        }
+
+        return $constructs;
     }
 }
 
