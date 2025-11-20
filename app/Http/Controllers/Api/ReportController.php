@@ -93,6 +93,8 @@ class ReportController extends Controller
             $pdf->loadView('reports.test-report', $data);
             $pdf->setPaper('a4', 'portrait');
             $pdf->setOption('enable-local-file-access', true);
+            $pdf->setOption('isHtml5ParserEnabled', true);
+            $pdf->setOption('isRemoteEnabled', false);
         } catch (\Exception $e) {
             return response()->json([
                 'data' => [],
@@ -105,9 +107,12 @@ class ReportController extends Controller
         // Generate filename
         $filename = 'test-report-' . $testResult->id . '-' . now()->format('Y-m-d') . '.pdf';
 
+        // Get PDF output
+        $pdfOutput = $pdf->output();
+
         // Save PDF to storage (optional - for later retrieval)
         $pdfPath = 'reports/' . $filename;
-        Storage::disk('public')->put($pdfPath, $pdf->output());
+        Storage::disk('public')->put($pdfPath, $pdfOutput);
 
         // Update report with file path
         $report->update([
@@ -115,8 +120,11 @@ class ReportController extends Controller
             'generated_at' => now(),
         ]);
 
-        // Return PDF download response
-        return $pdf->download($filename);
+        // Return PDF download response with proper headers
+        return response($pdfOutput, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->header('Content-Length', strlen($pdfOutput));
     }
 
     /**
@@ -162,6 +170,8 @@ class ReportController extends Controller
             $pdf->loadView('reports.test-report', $data);
             $pdf->setPaper('a4', 'portrait');
             $pdf->setOption('enable-local-file-access', true);
+            $pdf->setOption('isHtml5ParserEnabled', true);
+            $pdf->setOption('isRemoteEnabled', false);
         } catch (\Exception $e) {
             return response()->json([
                 'data' => [],

@@ -12,11 +12,11 @@
         }
 
         body {
-            font-family: 'DejaVu Sans', Arial, sans-serif;
+            font-family: DejaVu Sans, Arial, Helvetica, sans-serif;
             font-size: 12px;
             line-height: 1.6;
             color: #333;
-            background: #000;
+            background: #fff;
         }
 
         .header {
@@ -65,9 +65,20 @@
         }
 
         .user-info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
+            display: table;
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .user-info-row {
+            display: table-row;
+        }
+
+        .user-info-cell {
+            display: table-cell;
+            width: 50%;
+            padding-right: 15px;
+            vertical-align: top;
         }
 
         .info-item {
@@ -92,10 +103,28 @@
         }
 
         .score-item {
-            display: flex;
-            justify-content: space-between;
+            display: table;
+            width: 100%;
             padding: 10px 0;
             border-bottom: 1px solid #f0f0f0;
+        }
+
+        .score-item-inner {
+            display: table-row;
+        }
+
+        .score-label,
+        .score-value {
+            display: table-cell;
+        }
+
+        .score-label {
+            width: 70%;
+        }
+
+        .score-value {
+            width: 30%;
+            text-align: right;
         }
 
         .score-item:last-child {
@@ -161,25 +190,38 @@
             <div class="section-title">User Information</div>
             <div class="user-info">
                 <div class="user-info-grid">
-                    <div class="info-item">
-                        <div class="info-label">Name</div>
-                        <div class="info-value">{{ is_array($user->name) ? implode(' ', $user->name) : ($user->name ?? ($user->first_name . ' ' . $user->last_name)) }}
+                    <div class="user-info-row">
+                        <div class="user-info-cell">
+                            <div class="info-item">
+                                <div class="info-label">Name</div>
+                                <div class="info-value">{{ $user->name ?? ($user->first_name . ' ' . $user->last_name) }}</div>
+                            </div>
+                        </div>
+                        <div class="user-info-cell">
+                            <div class="info-item">
+                                <div class="info-label">Email</div>
+                                <div class="info-value">{{ $user->email }}</div>
+                            </div>
                         </div>
                     </div>
-                    <div class="info-item">
-                        <div class="info-label">Email</div>
-                        <div class="info-value">{{ $user->email }}</div>
-                    </div>
-                    @if(isset($user->profession))
-                    <div class="info-item">
-                        <div class="info-label">Profession</div>
-                        <div class="info-value">{{ $user->profession }}</div>
-                    </div>
-                    @endif
-                    @if(isset($user->city))
-                    <div class="info-item">
-                        <div class="info-label">Location</div>
-                        <div class="info-value">{{ $user->city }}, {{ $user->state }}, {{ $user->country }}</div>
+                    @if(isset($user->profession) || isset($user->city))
+                    <div class="user-info-row">
+                        @if(isset($user->profession))
+                        <div class="user-info-cell">
+                            <div class="info-item">
+                                <div class="info-label">Profession</div>
+                                <div class="info-value">{{ $user->profession }}</div>
+                            </div>
+                        </div>
+                        @endif
+                        @if(isset($user->city))
+                        <div class="user-info-cell">
+                            <div class="info-item">
+                                <div class="info-label">Location</div>
+                                <div class="info-value">{{ $user->city }}, {{ $user->state }}, {{ $user->country }}</div>
+                            </div>
+                        </div>
+                        @endif
                     </div>
                     @endif
                 </div>
@@ -191,12 +233,16 @@
             <div class="section-title">Test Scores</div>
             <div class="scores-section">
                 <div class="score-item">
-                    <span class="score-label">Total Score</span>
-                    <span class="score-value">{{ number_format($totalScore ?? 0, 2) }}</span>
+                    <div class="score-item-inner">
+                        <span class="score-label">Total Score</span>
+                        <span class="score-value">{{ number_format($totalScore ?? 0, 2) }}</span>
+                    </div>
                 </div>
                 <div class="score-item">
-                    <span class="score-label">Average Score</span>
-                    <span class="score-value">{{ number_format($averageScore ?? 0, 2) }}</span>
+                    <div class="score-item-inner">
+                        <span class="score-label">Average Score</span>
+                        <span class="score-value">{{ number_format($averageScore ?? 0, 2) }}</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -208,9 +254,22 @@
             <div class="scores-section">
                 @foreach($clusterScores as $cluster => $score)
                 <div class="score-item">
-                    <span class="score-label">{{ $cluster }}</span>
-                    <span class="score-value">{{ is_array($score) ? json_encode($score) : (is_numeric($score) ? number_format($score, 2) : $score) }}
-                    </span>
+                    <div class="score-item-inner">
+                        <span class="score-label">{{ $cluster }}</span>
+                        <span class="score-value">
+                            @if(is_array($score))
+                                @if(isset($score['average']))
+                                    {{ number_format($score['average'], 2) }} ({{ $score['percentage'] ?? 'N/A' }}%)
+                                @else
+                                    {{ number_format($score['total'] ?? 0, 2) }}
+                                @endif
+                            @elseif(is_numeric($score))
+                                {{ number_format($score, 2) }}
+                            @else
+                                {{ $score }}
+                            @endif
+                        </span>
+                    </div>
                 </div>
                 @endforeach
             </div>
