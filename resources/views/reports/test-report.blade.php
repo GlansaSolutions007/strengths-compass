@@ -163,7 +163,8 @@
                 <div class="user-info-grid">
                     <div class="info-item">
                         <div class="info-label">Name</div>
-                        <div class="info-value">{{ $user->name ?? ($user->first_name . ' ' . $user->last_name) }}</div>
+                        <div class="info-value">{{ is_array($user->name) ? implode(' ', $user->name) : ($user->name ?? ($user->first_name . ' ' . $user->last_name)) }}
+                        </div>
                     </div>
                     <div class="info-item">
                         <div class="info-label">Email</div>
@@ -208,7 +209,8 @@
                 @foreach($clusterScores as $cluster => $score)
                 <div class="score-item">
                     <span class="score-label">{{ $cluster }}</span>
-                    <span class="score-value">{{ is_numeric($score) ? number_format($score, 2) : $score }}</span>
+                    <span class="score-value">{{ is_array($score) ? json_encode($score) : (is_numeric($score) ? number_format($score, 2) : $score) }}
+                    </span>
                 </div>
                 @endforeach
             </div>
@@ -220,7 +222,8 @@
             <div class="section-title">Report Summary</div>
             <div class="report-content">
                 @if(!empty($report->report_summary))
-                    {!! nl2br(e($report->report_summary)) !!}
+                {!! nl2br(e(is_array($report->report_summary) ? implode("\n", $report->report_summary) : $report->report_summary)) !!}
+
                 @else
                     <div class="no-content">Report content will be available soon.</div>
                 @endif
