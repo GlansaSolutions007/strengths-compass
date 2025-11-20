@@ -7,7 +7,7 @@ use App\Models\TestResult;
 use App\Models\TestReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\App;
 
 class ReportController extends Controller
 {
@@ -87,12 +87,20 @@ class ReportController extends Controller
             'averageScore' => $testResult->average_score,
         ];
 
-        // Generate PDF
-        $pdf = Pdf::loadView('reports.test-report', $data);
-        
-        // Set PDF options
-        $pdf->setPaper('a4', 'portrait');
-        $pdf->setOption('enable-local-file-access', true);
+        // Generate PDF using container binding (more reliable than facade)
+        try {
+            $pdf = App::make('dompdf.wrapper');
+            $pdf->loadView('reports.test-report', $data);
+            $pdf->setPaper('a4', 'portrait');
+            $pdf->setOption('enable-local-file-access', true);
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'PDF library not available. Please ensure barryvdh/laravel-dompdf is installed and run: composer dump-autoload',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
 
         // Generate filename
         $filename = 'test-report-' . $testResult->id . '-' . now()->format('Y-m-d') . '.pdf';
@@ -148,10 +156,20 @@ class ReportController extends Controller
             'averageScore' => $testResult->average_score,
         ];
 
-        // Generate PDF
-        $pdf = Pdf::loadView('reports.test-report', $data);
-        $pdf->setPaper('a4', 'portrait');
-        $pdf->setOption('enable-local-file-access', true);
+        // Generate PDF using container binding (more reliable than facade)
+        try {
+            $pdf = App::make('dompdf.wrapper');
+            $pdf->loadView('reports.test-report', $data);
+            $pdf->setPaper('a4', 'portrait');
+            $pdf->setOption('enable-local-file-access', true);
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'PDF library not available. Please ensure barryvdh/laravel-dompdf is installed and run: composer dump-autoload',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
 
         // Return PDF stream (view in browser)
         return $pdf->stream('test-report-' . $testResult->id . '.pdf');
