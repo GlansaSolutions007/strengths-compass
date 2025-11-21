@@ -51,9 +51,19 @@ class ReportController extends Controller
         $clusterDetails = $this->buildClusterDetails($testResult);
         $constructDetails = $this->buildConstructDetails($clusterDetails);
 
+        // Enrich cluster_scores and construct_scores with descriptions and behaviours
+        $enrichedClusterScores = $this->enrichClusterScores($testResult);
+        $enrichedConstructScores = $this->enrichConstructScores($testResult);
+
+        // Get test result as array and update with enriched scores
+        $testResultData = $testResult->toArray();
+        $testResultData['cluster_scores'] = $enrichedClusterScores;
+        $testResultData['construct_scores'] = $enrichedConstructScores;
+
         return response()->json([
             'data' => [
                 'report' => $report,
+                'test_result' => $testResultData,
                 'cluster_insights' => $clusterInsights,
                 'radar_chart' => $radarChart,
                 'cluster_details' => $clusterDetails,
@@ -611,6 +621,154 @@ class ReportController extends Controller
         }
 
         return $constructs;
+    }
+
+    /**
+     * Enrich cluster scores with description and behaviour based on category
+     */
+    private function enrichClusterScores(TestResult $testResult): array
+    {
+        $clusterScores = $testResult->cluster_scores ?? [];
+        
+        if (empty($clusterScores) || !is_array($clusterScores)) {
+            return [];
+        }
+
+        if (!$testResult->test) {
+            return $clusterScores;
+        }
+
+        // Build a lookup map of cluster details by name
+        $clusterDetailsMap = [];
+        $clusters = $testResult->test->clusters ?? collect();
+        
+        foreach ($clusters as $cluster) {
+            $clusterDetailsMap[$cluster->name] = [
+                'description' => $cluster->description,
+                'high_behaviour' => $cluster->high_behaviour ?? $cluster->high_behavior ?? null,
+                'medium_behaviour' => $cluster->medium_behaviour ?? $cluster->medium_behavior ?? null,
+                'low_behaviour' => $cluster->low_behaviour ?? $cluster->low_behavior ?? null,
+            ];
+        }
+
+        // Enrich each cluster score
+        $enriched = [];
+        foreach ($clusterScores as $clusterName => $scoreData) {
+            $clusterInfo = $clusterDetailsMap[$clusterName] ?? null;
+            
+            if (is_array($scoreData)) {
+                $category = strtolower($scoreData['category'] ?? '');
+                $behaviour = null;
+                
+                // Get the appropriate behaviour based on category
+                if ($clusterInfo) {
+                    switch ($category) {
+                        case 'high':
+                            $behaviour = $clusterInfo['high_behaviour'];
+                            break;
+                        case 'medium':
+                            $behaviour = $clusterInfo['medium_behaviour'];
+                            break;
+                        case 'low':
+                            $behaviour = $clusterInfo['low_behaviour'];
+                            break;
+                    }
+                }
+
+                $enriched[$clusterName] = array_merge($scoreData, [
+                    'description' => $clusterInfo['description'] ?? null,
+                    'behaviour' => $behaviour,
+                ]);
+            } else {
+                // If score is not an array, keep it as is but add description if available
+                $enriched[$clusterName] = $scoreData;
+                if ($clusterInfo) {
+                    $enriched[$clusterName] = [
+                        'value' => $scoreData,
+                        'description' => $clusterInfo['description'] ?? null,
+                    ];
+                }
+            }
+        }
+
+        return $enriched;
+    }
+
+    /**
+     * Enrich construct scores with description and behaviour based on category
+     */
+    private function enrichConstructScores(TestResult $testResult): array
+    {
+        $constructScores = $testResult->construct_scores ?? [];
+        
+        if (empty($constructScores) || !is_array($constructScores)) {
+            return [];
+        }
+
+        if (!$testResult->test) {
+            return $constructScores;
+        }
+
+        // Build a lookup map of construct details by name
+        $constructDetailsMap = [];
+        $clusters = $testResult->test->clusters ?? collect();
+        
+        foreach ($clusters as $cluster) {
+            $constructs = $cluster->constructs ?? collect();
+            foreach ($constructs as $construct) {
+                $constructDetailsMap[$construct->name] = [
+                    'description' => $construct->description ?? $construct->definition,
+                    'high_behavior' => $construct->high_behavior,
+                    'medium_behavior' => $construct->medium_behavior,
+                    'low_behavior' => $construct->low_behavior,
+                    'cluster_name' => $cluster->name,
+                ];
+            }
+        }
+
+        // Enrich each construct score
+        $enriched = [];
+        foreach ($constructScores as $constructName => $scoreData) {
+            $constructInfo = $constructDetailsMap[$constructName] ?? null;
+            
+            if (is_array($scoreData)) {
+                $category = strtolower($scoreData['category'] ?? '');
+                $behaviour = null;
+                
+                // Get the appropriate behaviour based on category
+                if ($constructInfo) {
+                    switch ($category) {
+                        case 'high':
+                            $behaviour = $constructInfo['high_behavior'];
+                            break;
+                        case 'medium':
+                            $behaviour = $constructInfo['medium_behavior'];
+                            break;
+                        case 'low':
+                            $behaviour = $constructInfo['low_behavior'];
+                            break;
+                    }
+                }
+
+                $enriched[$constructName] = array_merge($scoreData, [
+                    'description' => $constructInfo['description'] ?? null,
+                    'behaviour' => $behaviour,
+                    'cluster_name' => $constructInfo['cluster_name'] ?? null,
+                ]);
+            } else {
+                // If score is not an array, keep it as is but add description if available
+                $enriched[$constructName] = $scoreData;
+                if ($constructInfo) {
+                    $enriched[$constructName] = [
+                        'value' => $scoreData,
+                        'description' => $constructInfo['description'] ?? null,
+                        'cluster_name' => $constructInfo['cluster_name'] ?? null,
+                    ];
+                }
+            }
+        }
+
+        return $enriched;
     }
 }
 
