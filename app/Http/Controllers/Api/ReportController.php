@@ -43,9 +43,6 @@ class ReportController extends Controller
             ]);
         }
 
-        // Load report with test result and its relationships
-        $report->load(['testResult.user', 'testResult.test']);
-
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
         $radarChart = $this->buildRadarChartData($clusterInsights);
         $clusterDetails = $this->buildClusterDetails($testResult);
@@ -60,9 +57,13 @@ class ReportController extends Controller
         $testResultData['cluster_scores'] = $enrichedClusterScores;
         $testResultData['construct_scores'] = $enrichedConstructScores;
 
+        // Convert report to array and remove test_result relationship to avoid duplication
+        $reportData = $report->toArray();
+        unset($reportData['test_result']);
+
         return response()->json([
             'data' => [
-                'report' => $report,
+                'report' => $reportData,
                 'test_result' => $testResultData,
                 'cluster_insights' => $clusterInsights,
                 'radar_chart' => $radarChart,
