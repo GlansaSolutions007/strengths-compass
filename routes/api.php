@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\QuestionsController;
 use App\Http\Controllers\Api\TestController;
 use App\Http\Controllers\Api\TestTakingController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\CountryController;
+use App\Http\Controllers\Api\StateController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -98,6 +100,15 @@ Route::post('test-results/{testResultId}/report/pdf', [ReportController::class, 
 Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report
 Route::get('test-results/{testResultId}/report/view', [ReportController::class, 'viewPdf']); // View PDF report in browser
 Route::put('test-results/{testResultId}/report', [ReportController::class, 'updateReportContent']); // Update report summary/recommendations
+
+// Countries routes (public)
+Route::get('countries', [CountryController::class, 'index']);
+Route::get('countries/{id}', [CountryController::class, 'show']);
+Route::get('countries/{id}/states', [CountryController::class, 'getStates']);
+
+// States routes (public)
+Route::get('states', [StateController::class, 'index']);
+Route::get('states/{id}', [StateController::class, 'show']);
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:
