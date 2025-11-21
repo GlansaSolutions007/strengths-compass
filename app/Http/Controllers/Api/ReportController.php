@@ -56,6 +56,8 @@ class ReportController extends Controller
         $testResultData = $testResult->toArray();
         $testResultData['cluster_scores'] = $enrichedClusterScores;
         $testResultData['construct_scores'] = $enrichedConstructScores;
+        // Remove test relationship from test_result
+        unset($testResultData['test']);
 
         // Convert report to array and remove test_result relationship to avoid duplication
         $reportData = $report->toArray();
