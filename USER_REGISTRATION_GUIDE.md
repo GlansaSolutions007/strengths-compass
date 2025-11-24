@@ -427,3 +427,60 @@ This will add the new fields to the users table:
 - `profession`
 - `educational_qualification`
 
+**Forget Password**
+Forgot Password Functionality
+1. Request Password Reset
+POST /api/forgot-password
+Request Body:
+{    "email": "user@example.com"}
+What it does:
+Generates a random temporary password (10 characters)
+Creates a reset token
+Stores both (hashed) in the database
+Sends an email with:
+The temporary password (plain text)
+A reset link with the token
+2. Reset Password
+POST /api/reset-password
+Request Body:
+{    "email": "user@example.com",    "token": "reset_token_from_url",    "temporary_password": "random_password_from_email",    "password": "new_password_123",    "password_confirmation": "new_password_123"}
+What it does:
+Validates the token and temporary password
+Checks if the token is expired (60 minutes)
+Updates the user's password
+Deletes the reset token
+Email Template
+The email includes:
+Temporary password (displayed in a box)
+Reset button/link
+Expiration warning (60 minutes)
+Professional styling matching your welcome email
+Frontend Integration
+Set the frontend URL in your .env file:
+   FRONTEND_URL=https://your-frontend-domain.com
+Or it will default to http://localhost:3000
+The reset link format is:
+   {FRONTEND_URL}/reset-password?token={token}&email={email}
+On your reset password page, extract the token and email from the URL, then show three fields:
+Temporary Password (from email)
+New Password
+Confirm Password
+Call the /api/reset-password endpoint with all the data.
+Security Features
+Temporary passwords expire after 60 minutes
+Tokens are hashed in the database
+Temporary passwords are hashed before storage
+Email doesn't reveal if the account exists (security best practice)
+Password validation (minimum 8 characters, must be confirmed)
+Example Flow
+User clicks "Forgot Password"
+User enters email → calls /api/forgot-password
+User receives email with temporary password and reset link
+User clicks link → redirected to reset page
+User enters:
+Temporary password (from email)
+New password
+Confirm password
+Frontend calls /api/reset-password with token, email, temporary password, and new password
+Password is reset successfully
+Ready to use. Make sure your email configuration is set up correctly in your .env file.

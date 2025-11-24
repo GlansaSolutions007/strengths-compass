@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Mail\WelcomeMail;
+use App\Mail\ForgotPasswordMail;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
@@ -319,6 +322,169 @@ class AuthController extends Controller
             ],
             'status' => 200,
             'message' => 'Password changed successfully',
+        ], 200);
+    }
+
+    /**
+     * Forgot password - Send temporary password and reset link via email
+     */
+    public function forgotPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|string|email',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $user = User::where('email', $request->email)->first();
+
+        // Don't reveal if email exists or not for security
+        if (!$user) {
+            return response()->json([
+                'data' => [],
+                'status' => 200,
+                'message' => 'If the email exists, a password reset link has been sent.',
+            ], 200);
+        }
+
+        // Generate a random temporary password (8-12 characters, alphanumeric)
+        $temporaryPassword = Str::random(10);
+
+        // Generate reset token
+        $resetToken = Str::random(64);
+
+        // Delete any existing reset tokens for this email
+        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+
+        // Store the reset token and hashed temporary password
+        DB::table('password_reset_tokens')->insert([
+            'email' => $user->email,
+            'token' => Hash::make($resetToken),
+            'temporary_password' => Hash::make($temporaryPassword),
+            'created_at' => now(),
+        ]);
+
+        // Generate reset URL (you may need to adjust this based on your frontend URL)
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000'));
+        $resetUrl = $frontendUrl . '/reset-password?token=' . $resetToken . '&email=' . urlencode($user->email);
+
+        // Send email
+        try {
+            Mail::to($user->email)->send(new ForgotPasswordMail($user, $temporaryPassword, $resetUrl));
+        } catch (\Exception $e) {
+            \Log::error('Failed to send forgot password email', [
+                'email' => $user->email,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'Failed to send email. Please try again later.',
+            ], 500);
+        }
+
+        return response()->json([
+            'data' => [],
+            'status' => 200,
+            'message' => 'Password reset link has been sent to your email.',
+        ], 200);
+    }
+
+    /**
+     * Reset password using temporary password and token
+     */
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|string|email',
+            'token' => 'required|string',
+            'temporary_password' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        // Find the password reset record
+        $passwordReset = DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->first();
+
+        if (!$passwordReset) {
+            return response()->json([
+                'data' => [],
+                'status' => 400,
+                'message' => 'Invalid or expired reset token.',
+            ], 400);
+        }
+
+        // Check if token is expired (60 minutes)
+        $createdAt = \Carbon\Carbon::parse($passwordReset->created_at);
+        if ($createdAt->addMinutes(60)->isPast()) {
+            DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+            return response()->json([
+                'data' => [],
+                'status' => 400,
+                'message' => 'Reset token has expired. Please request a new one.',
+            ], 400);
+        }
+
+        // Verify the reset token
+        if (!Hash::check($request->token, $passwordReset->token)) {
+            return response()->json([
+                'data' => [],
+                'status' => 400,
+                'message' => 'Invalid reset token.',
+            ], 400);
+        }
+
+        // Verify the temporary password
+        if (!Hash::check($request->temporary_password, $passwordReset->temporary_password)) {
+            return response()->json([
+                'data' => [],
+                'status' => 400,
+                'message' => 'Invalid temporary password.',
+            ], 400);
+        }
+
+        // Find the user
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'User not found.',
+            ], 404);
+        }
+
+        // Update the password
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        // Delete the reset token
+        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+
+        return response()->json([
+            'data' => [
+                'user' => $user,
+            ],
+            'status' => 200,
+            'message' => 'Password has been reset successfully.',
         ], 200);
     }
 }
