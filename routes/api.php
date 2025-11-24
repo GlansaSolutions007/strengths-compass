@@ -22,12 +22,14 @@ use Illuminate\Support\Facades\Route;
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
 Route::post('logout', [AuthController::class, 'logout']);
+Route::post('change-password', [AuthController::class, 'changePassword']); // Change own password (requires auth)
 
 // User routes (public for now)
 Route::get('users', [UserController::class, 'index']);
 Route::get('users/{id}', [UserController::class, 'show']);
 Route::put('users/{id}', [UserController::class, 'update']);
 Route::delete('users/{id}', [UserController::class, 'destroy']);
+Route::post('users/{id}/change-password', [UserController::class, 'changePassword']); // Admin: Change any user's password
 
 // Options routes (public)
 Route::get('options', [OptionsController::class, 'index']);

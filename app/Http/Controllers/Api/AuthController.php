@@ -232,6 +232,67 @@ class AuthController extends Controller
             'message' => 'Logged out successfully',
         ], 200);
     }
+
+    /**
+     * Change password for authenticated user
+     * Users can change their own password by providing current password
+     */
+    public function changePassword(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'data' => [],
+                'status' => 401,
+                'message' => 'Unauthorized - Please login first',
+            ], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        // Verify current password
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'data' => [],
+                'status' => 400,
+                'message' => 'Current password is incorrect',
+            ], 400);
+        }
+
+        // Check if new password is different from current password
+        if (Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'data' => [],
+                'status' => 400,
+                'message' => 'New password must be different from current password',
+            ], 400);
+        }
+
+        // Update password
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        return response()->json([
+            'data' => [
+                'user' => $user,
+            ],
+            'status' => 200,
+            'message' => 'Password changed successfully',
+        ], 200);
+    }
 }
 
 

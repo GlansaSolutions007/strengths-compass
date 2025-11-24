@@ -271,6 +271,66 @@ class UserController extends Controller
             'message' => 'User deleted successfully',
         ], 200);
     }
+
+    /**
+     * Change password for a user (Admin only)
+     * Admins can change any user's password without knowing the current password
+     */
+    public function changePassword(Request $request, int $id)
+    {
+        $currentUser = $request->user();
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'User not found',
+            ], 404);
+        }
+
+        // Check if user is authenticated and is admin
+        if (!$currentUser) {
+            return response()->json([
+                'data' => [],
+                'status' => 401,
+                'message' => 'Unauthorized - Please login first',
+            ], 401);
+        }
+
+        if ($currentUser->role !== 'admin') {
+            return response()->json([
+                'data' => [],
+                'status' => 403,
+                'message' => 'Forbidden - Admin access required',
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        // Update password
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        return response()->json([
+            'data' => [
+                'user' => $user,
+            ],
+            'status' => 200,
+            'message' => 'Password changed successfully',
+        ], 200);
+    }
 }
 
 
