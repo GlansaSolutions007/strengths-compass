@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class UserController extends Controller
 {
@@ -278,7 +279,43 @@ class UserController extends Controller
      */
     public function changePassword(Request $request, int $id)
     {
+        // Try to get user from request (if middleware is applied)
         $currentUser = $request->user();
+
+        // If no user from middleware, try to authenticate manually using bearer token
+        if (!$currentUser) {
+            $token = $request->bearerToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Please provide a valid token',
+                ], 401);
+            }
+
+            // Find the token and get the user
+            $accessToken = PersonalAccessToken::findToken($token);
+            
+            if (!$accessToken) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Invalid token',
+                ], 401);
+            }
+
+            $currentUser = $accessToken->tokenable;
+            
+            if (!$currentUser) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - User not found',
+                ], 401);
+            }
+        }
+
         $user = User::find($id);
 
         if (!$user) {
@@ -287,15 +324,6 @@ class UserController extends Controller
                 'status' => 404,
                 'message' => 'User not found',
             ], 404);
-        }
-
-        // Check if user is authenticated and is admin
-        if (!$currentUser) {
-            return response()->json([
-                'data' => [],
-                'status' => 401,
-                'message' => 'Unauthorized - Please login first',
-            ], 401);
         }
 
         if ($currentUser->role !== 'admin') {

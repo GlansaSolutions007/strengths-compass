@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
@@ -239,14 +240,41 @@ class AuthController extends Controller
      */
     public function changePassword(Request $request)
     {
+        // Try to get user from request (if middleware is applied)
         $user = $request->user();
 
+        // If no user from middleware, try to authenticate manually using bearer token
         if (!$user) {
-            return response()->json([
-                'data' => [],
-                'status' => 401,
-                'message' => 'Unauthorized - Please login first',
-            ], 401);
+            $token = $request->bearerToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Please provide a valid token',
+                ], 401);
+            }
+
+            // Find the token and get the user
+            $accessToken = PersonalAccessToken::findToken($token);
+            
+            if (!$accessToken) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Invalid token',
+                ], 401);
+            }
+
+            $user = $accessToken->tokenable;
+            
+            if (!$user) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - User not found',
+                ], 401);
+            }
         }
 
         $validator = Validator::make($request->all(), [
