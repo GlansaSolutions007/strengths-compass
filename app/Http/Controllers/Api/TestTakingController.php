@@ -1190,7 +1190,10 @@ private function calculateClusterScores($userAnswers, $test)
      * @param  array<int, array<string, mixed>>  $questions
      * @return array<int, array<string, mixed>>
      */
-    protected function indexQuestionsById(array $questions): array
+    /**
+     * @param  iterable<int, array<string, mixed>>|array<int, array<string, mixed>>  $questions
+     */
+    protected function indexQuestionsById(iterable $questions): array
     {
         $indexed = [];
 
