@@ -914,91 +914,15 @@ private function calculateClusterScores($userAnswers, $test)
      */
     protected function buildExportDatasets(Collection $results): array
     {
-        $rawRows = [];
-        $clusterRows = [];
-        $constructRows = [];
+        $userHeaders = $this->getUserHeaderLabels();
+        $questionColumns = $this->buildQuestionColumnsMeta($results);
 
-        foreach ($results as $result) {
-            $user = $result['user'] ?? [];
-            $test = $result['test'] ?? [];
-            $submittedAt = $result['submitted_at'] ?? null;
+        $rawRows = $this->buildRawDataRows($results, $userHeaders, $questionColumns);
+        $clusterNames = $this->collectSummaryNames($results, 'clusters');
+        $constructNames = $this->collectSummaryNames($results, 'constructs');
 
-            $clusterCollection = collect($result['clusters'] ?? [])->filter(fn ($item) => isset($item['name']));
-            $clusterMap = $clusterCollection->keyBy('name');
-            $constructCollection = collect($result['constructs'] ?? [])->filter(fn ($item) => isset($item['name']));
-            $constructMap = $constructCollection->keyBy('name');
-
-            foreach ($result['questions'] ?? [] as $question) {
-                $clusterName = data_get($question, 'construct.cluster.name');
-                $constructName = data_get($question, 'construct.name');
-                $clusterInfo = $clusterName ? $clusterMap->get($clusterName) : null;
-                $constructInfo = $constructName ? $constructMap->get($constructName) : null;
-
-                $rawRows[] = [
-                    'User ID' => $user['id'] ?? null,
-                    'User Name' => $user['name'] ?? null,
-                    'Email' => $user['email'] ?? null,
-                    'Contact Number' => $user['contact_number'] ?? null,
-                    'WhatsApp Number' => $user['whatsapp_number'] ?? null,
-                    'Gender' => $user['gender'] ?? null,
-                    'Age' => $user['age'] ?? null,
-                    'City' => $user['city'] ?? null,
-                    'State' => $user['state'] ?? null,
-                    'Country' => $user['country'] ?? null,
-                    'Profession' => $user['profession'] ?? null,
-                    'Educational Qualification' => $user['educational_qualification'] ?? null,
-                    'Test ID' => $test['id'] ?? null,
-                    'Test Title' => $test['title'] ?? null,
-                    'Submitted At' => $submittedAt,
-                    'Cluster Name' => $clusterName,
-                    'Cluster Percentage' => $clusterInfo['percentage'] ?? null,
-                    'Cluster Category' => $clusterInfo['category'] ?? null,
-                    'Construct Name' => $constructName,
-                    'Construct Percentage' => $constructInfo['percentage'] ?? null,
-                    'Construct Category' => $constructInfo['category'] ?? null,
-                    'Question ID' => $question['question_id'] ?? null,
-                    'Question Text' => $question['question_text'] ?? null,
-                    'Question Category' => $question['category'] ?? null,
-                    'Answer Value' => data_get($question, 'answer.answer_value'),
-                    'Answer Label' => data_get($question, 'answer.answer_label'),
-                    'Final Score' => data_get($question, 'answer.final_score'),
-                ];
-            }
-
-            foreach ($clusterCollection as $cluster) {
-                $clusterRows[] = [
-                    'User ID' => $user['id'] ?? null,
-                    'User Name' => $user['name'] ?? null,
-                    'Email' => $user['email'] ?? null,
-                    'Test ID' => $test['id'] ?? null,
-                    'Test Title' => $test['title'] ?? null,
-                    'Cluster Name' => $cluster['name'] ?? null,
-                    'Total Score' => $cluster['total'] ?? null,
-                    'Average Score' => $cluster['average'] ?? null,
-                    'Percentage' => $cluster['percentage'] ?? null,
-                    'Category' => $cluster['category'] ?? null,
-                    'Question Count' => $cluster['count'] ?? null,
-                    'Submitted At' => $submittedAt,
-                ];
-            }
-
-            foreach ($constructCollection as $construct) {
-                $constructRows[] = [
-                    'User ID' => $user['id'] ?? null,
-                    'User Name' => $user['name'] ?? null,
-                    'Email' => $user['email'] ?? null,
-                    'Test ID' => $test['id'] ?? null,
-                    'Test Title' => $test['title'] ?? null,
-                    'Construct Name' => $construct['name'] ?? null,
-                    'Total Score' => $construct['total'] ?? null,
-                    'Average Score' => $construct['average'] ?? null,
-                    'Percentage' => $construct['percentage'] ?? null,
-                    'Category' => $construct['category'] ?? null,
-                    'Question Count' => $construct['count'] ?? null,
-                    'Submitted At' => $submittedAt,
-                ];
-            }
-        }
+        $clusterRows = $this->buildSummaryRows($results, $userHeaders, $clusterNames, 'clusters');
+        $constructRows = $this->buildSummaryRows($results, $userHeaders, $constructNames, 'constructs');
 
         return [
             'raw' => $rawRows,
@@ -1023,7 +947,7 @@ private function calculateClusterScores($userAnswers, $test)
                 $meanScore = $data['average'] ?? 0;
                 $percentage = $this->calculatePercentageFromMean($meanScore);
 
-                $formatted[] = [
+                $formatted[$name] = [
                     'name' => $name,
                     'total' => $data['total'] ?? null,
                     'average' => $meanScore,
@@ -1035,7 +959,7 @@ private function calculateClusterScores($userAnswers, $test)
                 $meanScore = (float) $data;
                 $percentage = $this->calculatePercentageFromMean($meanScore);
 
-                $formatted[] = [
+                $formatted[$name] = [
                     'name' => $name,
                     'total' => null,
                     'average' => $meanScore,
@@ -1047,6 +971,273 @@ private function calculateClusterScores($userAnswers, $test)
         }
 
         return $formatted;
+    }
+
+    /**
+     * Get canonical list of user info headers for Excel exports.
+     */
+    protected function getUserHeaderLabels(): array
+    {
+        return [
+            'name',
+            'email',
+            'contact_number',
+            'whatsapp_number',
+            'gender',
+            'age',
+            'city',
+            'state',
+            'country',
+            'profession',
+            'educational_qualification',
+        ];
+    }
+
+    /**
+     * Build the raw data sheet rows (with multi-level headers).
+     *
+     * @param  array<int, array<string, mixed>>  $questionColumns
+     */
+    protected function buildRawDataRows(Collection $results, array $userHeaders, array $questionColumns): array
+    {
+        $questionCount = count($questionColumns);
+        $userColumnCount = count($userHeaders);
+        $rows = [];
+
+        $clusterHeader = array_merge(
+            array_fill(0, $userColumnCount, null),
+            array_map(fn ($column) => 'Cluster : ' . $column['cluster'], $questionColumns)
+        );
+
+        $constructHeader = array_merge(
+            array_fill(0, $userColumnCount, null),
+            array_map(fn ($column) => 'Construct: ' . $column['construct'], $questionColumns)
+        );
+
+        $questionHeader = array_merge(
+            $this->formatHeaderLabels($userHeaders),
+            array_map(fn ($column) => $column['label'], $questionColumns)
+        );
+
+        $rows[] = $clusterHeader;
+        $rows[] = $constructHeader;
+        $rows[] = $questionHeader;
+
+        foreach ($results as $result) {
+            $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
+            $questionMap = $this->indexQuestionsById($result['questions'] ?? []);
+
+            $textRow = [];
+            $scoreRow = [];
+
+            foreach ($questionColumns as $column) {
+                $question = $questionMap[$column['question_id']] ?? null;
+                $textRow[] = $question['question_text'] ?? $column['question_text'];
+                $scoreRow[] = data_get($question, 'answer.final_score');
+            }
+
+            $rows[] = array_merge($userRow, $textRow);
+            $rows[] = array_merge(array_fill(0, $userColumnCount, null), $scoreRow);
+            $rows[] = array_fill(0, $userColumnCount + $questionCount, null);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Build cluster / construct summary sheet rows.
+     *
+     * @param  array<int, string>  $names
+     */
+    protected function buildSummaryRows(Collection $results, array $userHeaders, array $names, string $key): array
+    {
+        $columnCount = count($userHeaders) + count($names);
+        $rows = [];
+
+        $rows[] = array_fill(0, $columnCount, null);
+        $rows[] = array_merge($this->formatHeaderLabels($userHeaders), $names);
+
+        foreach ($results as $result) {
+            $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
+            $summaryItems = data_get($result, $key, []);
+
+            $valueRow = [];
+            foreach ($names as $name) {
+                $entry = $summaryItems[$name] ?? null;
+                if (!$entry) {
+                    $valueRow[] = null;
+                    continue;
+                }
+
+                $percentage = $entry['percentage'] ?? null;
+                $valueRow[] = $percentage !== null ? round($percentage / 100, 2) : null;
+            }
+
+            $rows[] = array_merge($userRow, $valueRow);
+            $rows[] = array_fill(0, $columnCount, null);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Collect unique ordered names for cluster/construct summary columns.
+     */
+    protected function collectSummaryNames(Collection $results, string $key): array
+    {
+        $ordered = [];
+
+        foreach ($results as $result) {
+            $items = data_get($result, $key, []);
+            if (!is_array($items)) {
+                continue;
+            }
+
+            foreach ($items as $name => $data) {
+                if ($name === '' || $name === null) {
+                    continue;
+                }
+                if (!array_key_exists($name, $ordered)) {
+                    $ordered[$name] = count($ordered);
+                }
+            }
+        }
+
+        asort($ordered);
+        return array_keys($ordered);
+    }
+
+    /**
+     * Build ordered question columns with cluster / construct context.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function buildQuestionColumnsMeta(Collection $results): array
+    {
+        $clusters = [];
+
+        foreach ($results as $result) {
+            foreach ($result['questions'] ?? [] as $question) {
+                $clusterName = data_get($question, 'construct.cluster.name', 'N/A');
+                $constructName = data_get($question, 'construct.name', 'N/A');
+                $questionId = $question['question_id'] ?? null;
+
+                if (!$questionId) {
+                    continue;
+                }
+
+                if (!isset($clusters[$clusterName])) {
+                    $clusters[$clusterName] = [
+                        'order' => count($clusters),
+                        'constructs' => [],
+                    ];
+                }
+
+                if (!isset($clusters[$clusterName]['constructs'][$constructName])) {
+                    $clusters[$clusterName]['constructs'][$constructName] = [
+                        'order' => count($clusters[$clusterName]['constructs']),
+                        'questions' => [],
+                    ];
+                }
+
+                $clusters[$clusterName]['constructs'][$constructName]['questions'][$questionId] = [
+                    'question_id' => $questionId,
+                    'order' => $question['order_no'] ?? $questionId,
+                    'category' => $this->formatCategoryCode($question['category'] ?? null),
+                    'question_text' => $question['question_text'] ?? null,
+                ];
+            }
+        }
+
+        if (empty($clusters)) {
+            return [];
+        }
+
+        $columns = [];
+        $clusterPositions = array_map(fn ($data) => $data['order'], $clusters);
+        asort($clusterPositions);
+
+        foreach (array_keys($clusterPositions) as $clusterName) {
+            $constructs = $clusters[$clusterName]['constructs'] ?? [];
+            $constructPositions = array_map(fn ($data) => $data['order'], $constructs);
+            asort($constructPositions);
+
+            $questionNumber = 1;
+
+            foreach (array_keys($constructPositions) as $constructName) {
+                $questions = $constructs[$constructName]['questions'] ?? [];
+                uasort($questions, fn ($a, $b) => ($a['order'] ?? 0) <=> ($b['order'] ?? 0));
+
+                foreach ($questions as $meta) {
+                    $columns[] = [
+                        'cluster' => $clusterName,
+                        'construct' => $constructName,
+                        'question_id' => $meta['question_id'],
+                        'question_text' => $meta['question_text'],
+                        'label' => sprintf('Q%d(%s)', $questionNumber, $meta['category']),
+                    ];
+                    $questionNumber++;
+                }
+            }
+        }
+
+        return $columns;
+    }
+
+    /**
+     * Helper to index question entries by their id.
+     *
+     * @param  array<int, array<string, mixed>>  $questions
+     * @return array<int, array<string, mixed>>
+     */
+    protected function indexQuestionsById(array $questions): array
+    {
+        $indexed = [];
+
+        foreach ($questions as $question) {
+            if (!isset($question['question_id'])) {
+                continue;
+            }
+            $indexed[$question['question_id']] = $question;
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * Format user info row values based on header order.
+     */
+    protected function formatUserInfoValues(array $user, array $headers): array
+    {
+        return array_map(
+            fn ($field) => $user[$field] ?? null,
+            $headers
+        );
+    }
+
+    /**
+     * Convert header keys into human-readable labels.
+     */
+    protected function formatHeaderLabels(array $headers): array
+    {
+        return array_map(function ($label) {
+            return ucwords(str_replace('_', ' ', $label));
+        }, $headers);
+    }
+
+    /**
+     * Normalize question category codes (P, R, SDB, etc).
+     */
+    protected function formatCategoryCode(?string $category): string
+    {
+        $category = strtoupper((string) $category);
+
+        return match ($category) {
+            'P', 'POSITIVE' => 'P',
+            'R', 'REVERSE' => 'R',
+            'SDB' => 'SDB',
+            default => 'GEN',
+        };
     }
 
     /**
