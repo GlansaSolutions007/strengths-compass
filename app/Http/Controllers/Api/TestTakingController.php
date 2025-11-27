@@ -11,11 +11,14 @@ use App\Models\OptionsModel;
 use App\Models\QuestionsModel;
 use App\Models\ScoringRule;
 use App\Models\User;
+use App\Exports\UserTestDataExport;
 use App\Mail\TestCompletionMail;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Maatwebsite\Excel\Facades\Excel;
 
 class TestTakingController extends Controller
 {
@@ -738,35 +741,106 @@ private function calculateClusterScores($userAnswers, $test)
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
 
-        $testResultsQuery = TestResult::with([
+        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate);
+        $formattedResults = $this->transformTestResults($testResults);
+
+        return response()->json([
+            'status' => true,
+            'data' => $formattedResults,
+            'total_results' => $formattedResults->count(),
+            'filters' => [
+                'from_date' => $fromDate,
+                'to_date' => $toDate,
+            ],
+            'message' => 'All test results fetched successfully'
+        ], 200);
+    }
+
+    /**
+     * Download comprehensive test results as an Excel file with multiple sheets.
+     */
+    public function downloadTestResultsExcel(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'from_date' => 'nullable|date',
+            'to_date' => 'nullable|date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+
+        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate);
+        $formattedResults = $this->transformTestResults($testResults);
+
+        $datasets = $this->buildExportDatasets($formattedResults);
+
+        $fileName = 'user-test-results-' . now()->format('Y-m-d_His') . '.xlsx';
+
+        return Excel::download(
+            new UserTestDataExport(
+                $datasets['raw'],
+                $datasets['clusters'],
+                $datasets['constructs']
+            ),
+            $fileName
+        );
+    }
+
+    /**
+     * Fetch test results with required relationships and optional date filters.
+     */
+    protected function fetchTestResultsWithRelations(?string $fromDate, ?string $toDate): Collection
+    {
+        $query = TestResult::with([
             'user',
             'test',
             'answers.question.construct.cluster',
-            'test.selectedQuestions'
-        ])->orderBy('created_at', 'desc');
+            'test.selectedQuestions',
+        ])->orderByDesc('created_at');
 
         if ($fromDate) {
-            $testResultsQuery->where('created_at', '>=', Carbon::parse($fromDate)->startOfDay());
+            $query->where('created_at', '>=', Carbon::parse($fromDate)->startOfDay());
         }
 
         if ($toDate) {
-            $testResultsQuery->where('created_at', '<=', Carbon::parse($toDate)->endOfDay());
+            $query->where('created_at', '<=', Carbon::parse($toDate)->endOfDay());
         }
 
-        $testResults = $testResultsQuery->get();
+        return $query->get();
+    }
 
-        // Get all options for answer labels
+    /**
+     * Transform test results into structured data for API/export responses.
+     */
+    protected function transformTestResults(Collection $testResults): Collection
+    {
         $options = OptionsModel::orderBy('value')->get()->keyBy('value');
 
-        $formattedResults = $testResults->map(function ($testResult) use ($options) {
-            // Get test's question order for proper sorting
-            $questionOrder = $testResult->test->selectedQuestions->pluck('pivot.order_no', 'id')->toArray();
+        return $testResults->map(function ($testResult) use ($options) {
+            if (!$testResult->user || !$testResult->test) {
+                return null;
+            }
 
-            // Format questions with answers
+            $questionOrder = $testResult->test->selectedQuestions
+                ? $testResult->test->selectedQuestions->pluck('pivot.order_no', 'id')->toArray()
+                : [];
+
             $questionsWithAnswers = $testResult->answers->map(function ($answer) use ($options, $questionOrder) {
                 $question = $answer->question;
+                if (!$question) {
+                    return null;
+                }
+
                 $optionLabel = $options->get($answer->answer_value);
-                
+
                 return [
                     'question_id' => $question->id,
                     'question_text' => $question->question_text,
@@ -786,75 +860,12 @@ private function calculateClusterScores($userAnswers, $test)
                         'final_score' => $answer->final_score,
                     ],
                 ];
-            })->sortBy(function ($item) use ($questionOrder) {
+            })->filter()->sortBy(function ($item) {
                 return $item['order_no'] ?? $item['question_id'];
             })->values();
 
-            // Format cluster scores with percentages
-            $clusterScores = [];
-            if ($testResult->cluster_scores) {
-                foreach ($testResult->cluster_scores as $clusterName => $clusterData) {
-                    if (is_array($clusterData)) {
-                        $meanScore = $clusterData['average'] ?? 0;
-                        // Calculate percentage using formula: ((mean - 1) / 4) * 100
-                        $percentage = $this->calculatePercentageFromMean($meanScore);
-                        
-                        $clusterScores[] = [
-                            'name' => $clusterName,
-                            'total' => $clusterData['total'] ?? 0,
-                            'average' => $meanScore,
-                            'percentage' => $percentage,
-                            'count' => $clusterData['count'] ?? 0,
-                            'category' => $clusterData['category'] ?? $this->categorizeByPercentage($percentage),
-                        ];
-                    } else {
-                        // Legacy format - single value
-                        $meanScore = (float) $clusterData;
-                        $percentage = $this->calculatePercentageFromMean($meanScore);
-                        
-                        $clusterScores[] = [
-                            'name' => $clusterName,
-                            'average' => $meanScore,
-                            'percentage' => $percentage,
-                            'category' => $this->categorizeByPercentage($percentage),
-                        ];
-                    }
-                }
-            }
-
-            // Format construct scores with percentages
-            $constructScores = [];
-            if ($testResult->construct_scores) {
-                foreach ($testResult->construct_scores as $constructName => $constructData) {
-                    if (is_array($constructData)) {
-                        $meanScore = $constructData['average'] ?? 0;
-                        // Calculate percentage using formula: ((mean - 1) / 4) * 100
-                        $percentage = $this->calculatePercentageFromMean($meanScore);
-                        
-                        $constructScores[] = [
-                            'name' => $constructName,
-                            'total' => $constructData['total'] ?? 0,
-                            'average' => $meanScore,
-                            'percentage' => $percentage,
-                            'count' => $constructData['count'] ?? 0,
-                            'category' => $constructData['category'] ?? $this->categorizeByPercentage($percentage),
-                        ];
-                    } else {
-                        // Legacy format - single value
-                        $meanScore = (float) $constructData;
-                        $percentage = $this->calculatePercentageFromMean($meanScore);
-                        
-                        $constructScores[] = [
-                            'name' => $constructName,
-                            'average' => $meanScore,
-                            'percentage' => $percentage,
-                            'category' => $this->categorizeByPercentage($percentage),
-                        ];
-                    }
-                }
-            }
-
-            // Calculate overall percentage
+            $clusterScores = $this->transformScoreCollection($testResult->cluster_scores);
+            $constructScores = $this->transformScoreCollection($testResult->construct_scores);
             $overallPercentage = $this->calculatePercentageFromMean($testResult->average_score ?? 0);
 
             return [
@@ -892,17 +903,150 @@ private function calculateClusterScores($userAnswers, $test)
                 'constructs' => $constructScores,
                 'sdb_flag' => $testResult->sdb_flag,
                 'status' => $testResult->status,
-                'submitted_at' => $testResult->created_at,
-                'updated_at' => $testResult->updated_at,
+                'submitted_at' => optional($testResult->created_at)->toDateTimeString(),
+                'updated_at' => optional($testResult->updated_at)->toDateTimeString(),
             ];
-        });
+        })->filter()->values();
+    }
 
-        return response()->json([
-            'status' => true,
-            'data' => $formattedResults,
-            'total_results' => $formattedResults->count(),
-            'message' => 'All test results fetched successfully'
-        ], 200);
+    /**
+     * Build datasets for Excel export (raw data + summaries).
+     */
+    protected function buildExportDatasets(Collection $results): array
+    {
+        $rawRows = [];
+        $clusterRows = [];
+        $constructRows = [];
+
+        foreach ($results as $result) {
+            $user = $result['user'] ?? [];
+            $test = $result['test'] ?? [];
+            $submittedAt = $result['submitted_at'] ?? null;
+
+            $clusterCollection = collect($result['clusters'] ?? [])->filter(fn ($item) => isset($item['name']));
+            $clusterMap = $clusterCollection->keyBy('name');
+            $constructCollection = collect($result['constructs'] ?? [])->filter(fn ($item) => isset($item['name']));
+            $constructMap = $constructCollection->keyBy('name');
+
+            foreach ($result['questions'] ?? [] as $question) {
+                $clusterName = data_get($question, 'construct.cluster.name');
+                $constructName = data_get($question, 'construct.name');
+                $clusterInfo = $clusterName ? $clusterMap->get($clusterName) : null;
+                $constructInfo = $constructName ? $constructMap->get($constructName) : null;
+
+                $rawRows[] = [
+                    'User ID' => $user['id'] ?? null,
+                    'User Name' => $user['name'] ?? null,
+                    'Email' => $user['email'] ?? null,
+                    'Contact Number' => $user['contact_number'] ?? null,
+                    'WhatsApp Number' => $user['whatsapp_number'] ?? null,
+                    'Gender' => $user['gender'] ?? null,
+                    'Age' => $user['age'] ?? null,
+                    'City' => $user['city'] ?? null,
+                    'State' => $user['state'] ?? null,
+                    'Country' => $user['country'] ?? null,
+                    'Profession' => $user['profession'] ?? null,
+                    'Educational Qualification' => $user['educational_qualification'] ?? null,
+                    'Test ID' => $test['id'] ?? null,
+                    'Test Title' => $test['title'] ?? null,
+                    'Submitted At' => $submittedAt,
+                    'Cluster Name' => $clusterName,
+                    'Cluster Percentage' => $clusterInfo['percentage'] ?? null,
+                    'Cluster Category' => $clusterInfo['category'] ?? null,
+                    'Construct Name' => $constructName,
+                    'Construct Percentage' => $constructInfo['percentage'] ?? null,
+                    'Construct Category' => $constructInfo['category'] ?? null,
+                    'Question ID' => $question['question_id'] ?? null,
+                    'Question Text' => $question['question_text'] ?? null,
+                    'Question Category' => $question['category'] ?? null,
+                    'Answer Value' => data_get($question, 'answer.answer_value'),
+                    'Answer Label' => data_get($question, 'answer.answer_label'),
+                    'Final Score' => data_get($question, 'answer.final_score'),
+                ];
+            }
+
+            foreach ($clusterCollection as $cluster) {
+                $clusterRows[] = [
+                    'User ID' => $user['id'] ?? null,
+                    'User Name' => $user['name'] ?? null,
+                    'Email' => $user['email'] ?? null,
+                    'Test ID' => $test['id'] ?? null,
+                    'Test Title' => $test['title'] ?? null,
+                    'Cluster Name' => $cluster['name'] ?? null,
+                    'Total Score' => $cluster['total'] ?? null,
+                    'Average Score' => $cluster['average'] ?? null,
+                    'Percentage' => $cluster['percentage'] ?? null,
+                    'Category' => $cluster['category'] ?? null,
+                    'Question Count' => $cluster['count'] ?? null,
+                    'Submitted At' => $submittedAt,
+                ];
+            }
+
+            foreach ($constructCollection as $construct) {
+                $constructRows[] = [
+                    'User ID' => $user['id'] ?? null,
+                    'User Name' => $user['name'] ?? null,
+                    'Email' => $user['email'] ?? null,
+                    'Test ID' => $test['id'] ?? null,
+                    'Test Title' => $test['title'] ?? null,
+                    'Construct Name' => $construct['name'] ?? null,
+                    'Total Score' => $construct['total'] ?? null,
+                    'Average Score' => $construct['average'] ?? null,
+                    'Percentage' => $construct['percentage'] ?? null,
+                    'Category' => $construct['category'] ?? null,
+                    'Question Count' => $construct['count'] ?? null,
+                    'Submitted At' => $submittedAt,
+                ];
+            }
+        }
+
+        return [
+            'raw' => $rawRows,
+            'clusters' => $clusterRows,
+            'constructs' => $constructRows,
+        ];
+    }
+
+    /**
+     * Transform cluster/construct score structures into a normalized array.
+     */
+    private function transformScoreCollection($scores): array
+    {
+        if (empty($scores) || (!is_array($scores) && !($scores instanceof \Traversable))) {
+            return [];
+        }
+
+        $formatted = [];
+
+        foreach ($scores as $name => $data) {
+            if (is_array($data)) {
+                $meanScore = $data['average'] ?? 0;
+                $percentage = $this->calculatePercentageFromMean($meanScore);
+
+                $formatted[] = [
+                    'name' => $name,
+                    'total' => $data['total'] ?? null,
+                    'average' => $meanScore,
+                    'percentage' => $percentage,
+                    'count' => $data['count'] ?? null,
+                    'category' => $data['category'] ?? $this->categorizeByPercentage($percentage),
+                ];
+            } else {
+                $meanScore = (float) $data;
+                $percentage = $this->calculatePercentageFromMean($meanScore);
+
+                $formatted[] = [
+                    'name' => $name,
+                    'total' => null,
+                    'average' => $meanScore,
+                    'percentage' => $percentage,
+                    'count' => null,
+                    'category' => $this->categorizeByPercentage($percentage),
+                ];
+            }
+        }
+
+        return $formatted;
     }
 
     /**
