@@ -780,7 +780,11 @@ private function calculateClusterScores($userAnswers, $test)
         $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate);
         $formattedResults = $this->transformTestResults($testResults);
 
-        $datasets = $this->buildExportDatasets($formattedResults);
+        $filteredResults = $formattedResults->filter(function ($result) {
+            return strtolower($result['user']['role'] ?? '') === 'user';
+        })->values();
+
+        $datasets = $this->buildExportDatasets($filteredResults);
 
         $fileName = 'user-test-results-' . now()->format('Y-m-d_His') . '.xlsx';
 
@@ -1069,8 +1073,7 @@ private function calculateClusterScores($userAnswers, $test)
                     continue;
                 }
 
-                $percentage = $entry['percentage'] ?? null;
-                $valueRow[] = $percentage !== null ? round($percentage / 100, 2) : null;
+                $valueRow[] = $this->extractPercentageScore($entry);
             }
 
             $rows[] = array_merge($userRow, $valueRow);
@@ -1241,6 +1244,20 @@ private function calculateClusterScores($userAnswers, $test)
             'SDB' => 'SDB',
             default => 'GEN',
         };
+    }
+
+    /**
+     * Resolve percentage score for a cluster/construct entry.
+     */
+    protected function extractPercentageScore(array $entry): ?float
+    {
+        $percentage = $entry['percentage'] ?? null;
+
+        if ($percentage === null && isset($entry['average'])) {
+            $percentage = $this->calculatePercentageFromMean($entry['average']);
+        }
+
+        return $percentage !== null ? round((float) $percentage, 0) : null;
     }
 
     /**
