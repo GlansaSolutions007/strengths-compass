@@ -914,61 +914,18 @@ private function calculateClusterScores($userAnswers, $test)
      */
     protected function buildExportDatasets(Collection $results): array
     {
-        $userHeaders = $this->getUserHeaderLabels();
-        $clusterNames = $this->collectSummaryNames($results, 'clusters');
+        $userHeaders    = $this->getUserHeaderLabels();
+        $questionCols   = $this->buildQuestionColumnsMeta($results);
+        $clusterNames   = $this->collectSummaryNames($results, 'clusters');
         $constructNames = $this->collectSummaryNames($results, 'constructs');
 
-        $userHeaderLabels = $this->formatHeaderLabels($userHeaders);
-
-        $clusterHeading = [];
-        if (!empty($clusterNames)) {
-            $clusterHeading[] = 'Clusters';
-            for ($i = 1; $i < count($clusterNames); $i++) {
-                $clusterHeading[] = null;
-            }
-        }
-
-        $constructHeading = [];
-        if (!empty($constructNames)) {
-            $constructHeading[] = 'Constructs';
-            for ($i = 1; $i < count($constructNames); $i++) {
-                $constructHeading[] = null;
-            }
-        }
-
-        $rawRows = [];
-
-        $rawRows[] = array_merge(
-            $userHeaderLabels,
-            $clusterHeading,
-            $constructHeading
-        );
-
-        $rawRows[] = array_merge(
-            array_fill(0, count($userHeaderLabels), null),
+        $rawRows = $this->buildRawDataRows(
+            $results,
+            $userHeaders,
+            $questionCols,
             $clusterNames,
             $constructNames
         );
-
-        foreach ($results as $result) {
-            $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
-
-            $clusterItems = data_get($result, 'clusters', []);
-            $clusterValues = [];
-            foreach ($clusterNames as $name) {
-                $entry = $clusterItems[$name] ?? null;
-                $clusterValues[] = $entry ? $this->extractPercentageScore($entry) : null;
-            }
-
-            $constructItems = data_get($result, 'constructs', []);
-            $constructValues = [];
-            foreach ($constructNames as $name) {
-                $entry = $constructItems[$name] ?? null;
-                $constructValues[] = $entry ? $this->extractPercentageScore($entry) : null;
-            }
-
-            $rawRows[] = array_merge($userRow, $clusterValues, $constructValues);
-        }
 
         return [
             'raw' => $rawRows,
@@ -1038,14 +995,25 @@ private function calculateClusterScores($userAnswers, $test)
     }
 
     /**
-     * Build the raw data sheet rows (with multi-level headers).
+     * Build the raw data sheet rows (with questions, plus cluster/construct scores at the end).
      *
      * @param  array<int, array<string, mixed>>  $questionColumns
+     * @param  array<int, string>                $clusterNames
+     * @param  array<int, string>                $constructNames
      */
-    protected function buildRawDataRows(Collection $results, array $userHeaders, array $questionColumns): array
+    protected function buildRawDataRows(
+        Collection $results,
+        array $userHeaders,
+        array $questionColumns,
+        array $clusterNames,
+        array $constructNames
+    ): array
     {
-        $questionCount = count($questionColumns);
-        $userColumnCount = count($userHeaders);
+        $questionCount     = count($questionColumns);
+        $userColumnCount   = count($userHeaders);
+        $clusterCount      = count($clusterNames);
+        $constructCount    = count($constructNames);
+        $summaryColsCount  = $clusterCount + $constructCount;
         $rows = [];
 
         $clusterHeader = array_merge(
@@ -1063,9 +1031,42 @@ private function calculateClusterScores($userAnswers, $test)
             array_map(fn ($column) => $column['label'], $questionColumns)
         );
 
-        $rows[] = $clusterHeader;
-        $rows[] = $constructHeader;
-        $rows[] = $questionHeader;
+        // Extra headings for summary scores at the end
+        $clusterSummaryHeading = [];
+        if ($clusterCount > 0) {
+            $clusterSummaryHeading[] = 'Clusters';
+            for ($i = 1; $i < $clusterCount; $i++) {
+                $clusterSummaryHeading[] = null;
+            }
+        }
+
+        $constructSummaryHeading = [];
+        if ($constructCount > 0) {
+            $constructSummaryHeading[] = 'Constructs';
+            for ($i = 1; $i < $constructCount; $i++) {
+                $constructSummaryHeading[] = null;
+            }
+        }
+
+        // 1) Cluster row over question columns, then "Clusters"/"Constructs" headings at the far right
+        $rows[] = array_merge(
+            $clusterHeader,
+            $clusterSummaryHeading,
+            $constructSummaryHeading
+        );
+
+        // 2) Construct row over question columns, then each cluster/construct name as column labels
+        $rows[] = array_merge(
+            $constructHeader,
+            $clusterNames,
+            $constructNames
+        );
+
+        // 3) Question labels row, with empty cells in the summary section
+        $rows[] = array_merge(
+            $questionHeader,
+            array_fill(0, $summaryColsCount, null)
+        );
 
         foreach ($results as $result) {
             $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
@@ -1080,9 +1081,38 @@ private function calculateClusterScores($userAnswers, $test)
                 $scoreRow[] = data_get($question, 'answer.final_score');
             }
 
-            $rows[] = array_merge($userRow, $textRow);
-            $rows[] = array_merge(array_fill(0, $userColumnCount, null), $scoreRow);
-            $rows[] = array_fill(0, $userColumnCount + $questionCount, null);
+            // Summary scores for this user
+            $clusterValues = [];
+            $clusterItems  = data_get($result, 'clusters', []);
+            foreach ($clusterNames as $name) {
+                $entry = $clusterItems[$name] ?? null;
+                $clusterValues[] = $entry ? $this->extractPercentageScore($entry) : null;
+            }
+
+            $constructValues = [];
+            $constructItems  = data_get($result, 'constructs', []);
+            foreach ($constructNames as $name) {
+                $entry = $constructItems[$name] ?? null;
+                $constructValues[] = $entry ? $this->extractPercentageScore($entry) : null;
+            }
+
+            // User + question text + empty summary cells
+            $rows[] = array_merge(
+                $userRow,
+                $textRow,
+                array_fill(0, $summaryColsCount, null)
+            );
+
+            // Score row (only scores + summary percentages)
+            $rows[] = array_merge(
+                array_fill(0, $userColumnCount, null),
+                $scoreRow,
+                $clusterValues,
+                $constructValues
+            );
+
+            // Blank separator row
+            $rows[] = array_fill(0, $userColumnCount + $questionCount + $summaryColsCount, null);
         }
 
         return $rows;
