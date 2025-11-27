@@ -12,6 +12,7 @@ use App\Models\QuestionsModel;
 use App\Models\ScoringRule;
 use App\Models\User;
 use App\Mail\TestCompletionMail;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -721,13 +722,38 @@ private function calculateClusterScores($userAnswers, $test)
      */
     public function getAllTestResultsComprehensive(Request $request)
     {
-        // Get all test results with relationships
-        $testResults = TestResult::with([
+        $validator = Validator::make($request->all(), [
+            'from_date' => 'nullable|date',
+            'to_date' => 'nullable|date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+
+        $testResultsQuery = TestResult::with([
             'user',
             'test',
             'answers.question.construct.cluster',
             'test.selectedQuestions'
-        ])->orderBy('created_at', 'desc')->get();
+        ])->orderBy('created_at', 'desc');
+
+        if ($fromDate) {
+            $testResultsQuery->where('created_at', '>=', Carbon::parse($fromDate)->startOfDay());
+        }
+
+        if ($toDate) {
+            $testResultsQuery->where('created_at', '<=', Carbon::parse($toDate)->endOfDay());
+        }
+
+        $testResults = $testResultsQuery->get();
 
         // Get all options for answer labels
         $options = OptionsModel::orderBy('value')->get()->keyBy('value');
