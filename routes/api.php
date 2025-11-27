@@ -97,6 +97,7 @@ Route::get('test-results/{testResultId}', [TestTakingController::class, 'getResu
 Route::get('test-results/{testResultId}/answers', [TestTakingController::class, 'getTestResultAnswers']); // Get questions and answers for a test result
 Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user (scores only)
 Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test (scores only)
+Route::get('test-results-comprehensive/all', [TestTakingController::class, 'getAllTestResultsComprehensive']); // Get all test results with comprehensive data for all users
 
 // Report routes
 Route::get('test-results/{testResultId}/report', [ReportController::class, 'getReport']); // Get report data for a test result

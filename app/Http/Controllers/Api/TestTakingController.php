@@ -714,4 +714,195 @@ private function calculateClusterScores($userAnswers, $test)
             'message' => 'Test results fetched successfully'
         ], 200);
     }
+
+    /**
+     * Get all test results for all users with comprehensive data
+     * Includes: user details, tests, questions, answers, scores, clusters, constructs with percentages
+     */
+    public function getAllTestResultsComprehensive(Request $request)
+    {
+        // Get all test results with relationships
+        $testResults = TestResult::with([
+            'user',
+            'test',
+            'answers.question.construct.cluster',
+            'test.selectedQuestions'
+        ])->orderBy('created_at', 'desc')->get();
+
+        // Get all options for answer labels
+        $options = OptionsModel::orderBy('value')->get()->keyBy('value');
+
+        $formattedResults = $testResults->map(function ($testResult) use ($options) {
+            // Get test's question order for proper sorting
+            $questionOrder = $testResult->test->selectedQuestions->pluck('pivot.order_no', 'id')->toArray();
+
+            // Format questions with answers
+            $questionsWithAnswers = $testResult->answers->map(function ($answer) use ($options, $questionOrder) {
+                $question = $answer->question;
+                $optionLabel = $options->get($answer->answer_value);
+                
+                return [
+                    'question_id' => $question->id,
+                    'question_text' => $question->question_text,
+                    'category' => $question->category,
+                    'order_no' => $questionOrder[$question->id] ?? null,
+                    'construct' => $question->construct ? [
+                        'id' => $question->construct->id,
+                        'name' => $question->construct->name,
+                        'cluster' => $question->construct->cluster ? [
+                            'id' => $question->construct->cluster->id,
+                            'name' => $question->construct->cluster->name,
+                        ] : null,
+                    ] : null,
+                    'answer' => [
+                        'answer_value' => $answer->answer_value,
+                        'answer_label' => $optionLabel ? $optionLabel->label : null,
+                        'final_score' => $answer->final_score,
+                    ],
+                ];
+            })->sortBy(function ($item) use ($questionOrder) {
+                return $item['order_no'] ?? $item['question_id'];
+            })->values();
+
+            // Format cluster scores with percentages
+            $clusterScores = [];
+            if ($testResult->cluster_scores) {
+                foreach ($testResult->cluster_scores as $clusterName => $clusterData) {
+                    if (is_array($clusterData)) {
+                        $meanScore = $clusterData['average'] ?? 0;
+                        // Calculate percentage using formula: ((mean - 1) / 4) * 100
+                        $percentage = $this->calculatePercentageFromMean($meanScore);
+                        
+                        $clusterScores[] = [
+                            'name' => $clusterName,
+                            'total' => $clusterData['total'] ?? 0,
+                            'average' => $meanScore,
+                            'percentage' => $percentage,
+                            'count' => $clusterData['count'] ?? 0,
+                            'category' => $clusterData['category'] ?? $this->categorizeByPercentage($percentage),
+                        ];
+                    } else {
+                        // Legacy format - single value
+                        $meanScore = (float) $clusterData;
+                        $percentage = $this->calculatePercentageFromMean($meanScore);
+                        
+                        $clusterScores[] = [
+                            'name' => $clusterName,
+                            'average' => $meanScore,
+                            'percentage' => $percentage,
+                            'category' => $this->categorizeByPercentage($percentage),
+                        ];
+                    }
+                }
+            }
+
+            // Format construct scores with percentages
+            $constructScores = [];
+            if ($testResult->construct_scores) {
+                foreach ($testResult->construct_scores as $constructName => $constructData) {
+                    if (is_array($constructData)) {
+                        $meanScore = $constructData['average'] ?? 0;
+                        // Calculate percentage using formula: ((mean - 1) / 4) * 100
+                        $percentage = $this->calculatePercentageFromMean($meanScore);
+                        
+                        $constructScores[] = [
+                            'name' => $constructName,
+                            'total' => $constructData['total'] ?? 0,
+                            'average' => $meanScore,
+                            'percentage' => $percentage,
+                            'count' => $constructData['count'] ?? 0,
+                            'category' => $constructData['category'] ?? $this->categorizeByPercentage($percentage),
+                        ];
+                    } else {
+                        // Legacy format - single value
+                        $meanScore = (float) $constructData;
+                        $percentage = $this->calculatePercentageFromMean($meanScore);
+                        
+                        $constructScores[] = [
+                            'name' => $constructName,
+                            'average' => $meanScore,
+                            'percentage' => $percentage,
+                            'category' => $this->categorizeByPercentage($percentage),
+                        ];
+                    }
+                }
+            }
+
+            // Calculate overall percentage
+            $overallPercentage = $this->calculatePercentageFromMean($testResult->average_score ?? 0);
+
+            return [
+                'test_result_id' => $testResult->id,
+                'user' => [
+                    'id' => $testResult->user->id,
+                    'name' => $testResult->user->name,
+                    'email' => $testResult->user->email,
+                    'first_name' => $testResult->user->first_name,
+                    'last_name' => $testResult->user->last_name,
+                    'role' => $testResult->user->role,
+                ],
+                'test' => [
+                    'id' => $testResult->test->id,
+                    'title' => $testResult->test->title,
+                    'description' => $testResult->test->description,
+                ],
+                'scores' => [
+                    'total_score' => $testResult->total_score,
+                    'average_score' => $testResult->average_score,
+                    'average_percentage' => $overallPercentage,
+                    'overall_category' => $testResult->overall_category ?? $this->categorizeByPercentage($overallPercentage),
+                ],
+                'questions' => $questionsWithAnswers,
+                'clusters' => $clusterScores,
+                'constructs' => $constructScores,
+                'sdb_flag' => $testResult->sdb_flag,
+                'status' => $testResult->status,
+                'submitted_at' => $testResult->created_at,
+                'updated_at' => $testResult->updated_at,
+            ];
+        });
+
+        return response()->json([
+            'status' => true,
+            'data' => $formattedResults,
+            'total_results' => $formattedResults->count(),
+            'message' => 'All test results fetched successfully'
+        ], 200);
+    }
+
+    /**
+     * Calculate percentage from mean score using formula: ((mean - 1) / 4) * 100
+     * Example: 3.57 -> ((3.57 - 1) / 4) * 100 = 64.25% -> 64% (rounded)
+     */
+    private function calculatePercentageFromMean($meanScore)
+    {
+        if ($meanScore <= 0) {
+            return 0;
+        }
+        
+        // Step 1: Subtract 1
+        $step1 = $meanScore - 1;
+        
+        // Step 2: Divide by 4
+        $step2 = $step1 / 4;
+        
+        // Step 3: Convert to percentage and round
+        $percentage = round($step2 * 100);
+        
+        return max(0, min(100, (int) $percentage));
+    }
+
+    /**
+     * Categorize score by percentage: 0-59 = Low, 60-79 = Medium, 80-100 = High
+     */
+    private function categorizeByPercentage($percentage)
+    {
+        if ($percentage < 60) {
+            return 'Low';
+        } elseif ($percentage < 80) {
+            return 'Medium';
+        } else {
+            return 'High';
+        }
+    }
 }
