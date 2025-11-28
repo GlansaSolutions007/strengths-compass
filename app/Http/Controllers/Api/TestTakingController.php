@@ -1155,12 +1155,10 @@ private function calculateClusterScores($userAnswers, $test)
             $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
             $questionMap = $this->indexQuestionsById($result['questions'] ?? []);
 
-            $textRow = [];
             $scoreRow = [];
 
             foreach ($questionColumns as $column) {
                 $question = $questionMap[$column['question_id']] ?? null;
-                $textRow[] = $question['question_text'] ?? $column['question_text'];
                 $scoreRow[] = data_get($question, 'answer.final_score');
             }
 
@@ -1182,16 +1180,9 @@ private function calculateClusterScores($userAnswers, $test)
             // SDB raw score (average of 18 items) – no percentage
             $sdbRawScore = data_get($result, 'sdb.raw_score');
 
-            // User + question text + empty summary cells
+            // User info + scores + summary scores (cluster, construct, SDB)
             $rows[] = array_merge(
                 $userRow,
-                $textRow,
-                array_fill(0, $summaryColsCount, null)
-            );
-
-            // Score row (only scores + summary percentages)
-            $rows[] = array_merge(
-                array_fill(0, $userColumnCount, null),
                 $scoreRow,
                 $clusterValues,
                 $constructValues,
