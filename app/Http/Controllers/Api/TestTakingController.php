@@ -1092,7 +1092,9 @@ private function calculateClusterScores($userAnswers, $test)
         $userColumnCount   = count($userHeaders);
         $clusterCount      = count($clusterNames);
         $constructCount    = count($constructNames);
-        $summaryColsCount  = $clusterCount + $constructCount;
+        // One extra summary column for SDB (raw score)
+        $sdbColumnCount    = 1;
+        $summaryColsCount  = $clusterCount + $constructCount + $sdbColumnCount;
         $rows = [];
 
         $clusterHeader = array_merge(
@@ -1127,21 +1129,23 @@ private function calculateClusterScores($userAnswers, $test)
             }
         }
 
-        // 1) Cluster row over question columns, then "Clusters"/"Constructs" headings at the far right
+        // 1) Cluster row over question columns, then "Clusters"/"Constructs"/"SDB" headings at the far right
         $rows[] = array_merge(
             $clusterHeader,
             $clusterSummaryHeading,
-            $constructSummaryHeading
+            $constructSummaryHeading,
+            ['SDB']
         );
 
-        // 2) Construct row over question columns, then each cluster/construct name as column labels
+        // 2) Construct row over question columns, then each cluster/construct name as column labels (SDB column is empty on this row)
         $rows[] = array_merge(
             $constructHeader,
             $clusterNames,
-            $constructNames
+            $constructNames,
+            [null]
         );
 
-        // 3) Question labels row, with empty cells in the summary section
+        // 3) Question labels row, with empty cells in the summary section (including SDB column)
         $rows[] = array_merge(
             $questionHeader,
             array_fill(0, $summaryColsCount, null)
@@ -1175,6 +1179,9 @@ private function calculateClusterScores($userAnswers, $test)
                 $constructValues[] = $entry ? $this->extractPercentageScore($entry) : null;
             }
 
+            // SDB raw score (average of 18 items) – no percentage
+            $sdbRawScore = data_get($result, 'sdb.raw_score');
+
             // User + question text + empty summary cells
             $rows[] = array_merge(
                 $userRow,
@@ -1187,7 +1194,8 @@ private function calculateClusterScores($userAnswers, $test)
                 array_fill(0, $userColumnCount, null),
                 $scoreRow,
                 $clusterValues,
-                $constructValues
+                $constructValues,
+                [$sdbRawScore]
             );
 
             // Blank separator row
@@ -1314,21 +1322,22 @@ private function calculateClusterScores($userAnswers, $test)
             $constructPositions = array_map(fn ($data) => $data['order'], $constructs);
             asort($constructPositions);
 
-            $questionNumber = 1;
-
             foreach (array_keys($constructPositions) as $constructName) {
                 $questions = $constructs[$constructName]['questions'] ?? [];
                 uasort($questions, fn ($a, $b) => ($a['order'] ?? 0) <=> ($b['order'] ?? 0));
 
                 foreach ($questions as $meta) {
+                    $labelQuestionText = $meta['question_text'] ?? '';
+                    $labelCategory = $meta['category'] ?? '';
+
                     $columns[] = [
                         'cluster' => $clusterName,
                         'construct' => $constructName,
                         'question_id' => $meta['question_id'],
                         'question_text' => $meta['question_text'],
-                        'label' => sprintf('Q%d(%s)', $questionNumber, $meta['category']),
+                        // Header format: "I want to win (P)"
+                        'label' => trim(sprintf('%s (%s)', $labelQuestionText, $labelCategory)),
                     ];
-                    $questionNumber++;
                 }
             }
         }
