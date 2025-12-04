@@ -142,13 +142,7 @@ class TestTakingController extends Controller
                 $category = $scoringRule->category ?? $question->category;
                 $reverseScore = $scoringRule->reverse_score ?? false;
                 $weight = $scoringRule->weight ?? 1.0;
-                
-                // SDB questions are completely excluded from cluster/construct calculations
-                if ($category === 'SDB') {
-                    $includeInConstruct = false;
-                } else {
-                    $includeInConstruct = $scoringRule->include_in_construct ?? true;
-                }
+                $includeInConstruct = $scoringRule->include_in_construct ?? true;
 
                 // Calculate final score based on category
                 $finalScore = $this->calculateScore($answerValue, $category, $reverseScore, $weight);
@@ -187,8 +181,8 @@ class TestTakingController extends Controller
             $clusterScores = $this->calculateClusterScores($userAnswers, $test);
             $constructScores = $this->calculateConstructScores($userAnswers, $test);
 
-            // Calculate SDB separately (completely independent from cluster/construct calculations)
-            $sdbData = $this->calculateSDBScore($userAnswers);
+            // Check for SDB flag (if too many SDB questions have high scores)
+            $sdbFlag = $this->checkSDBFlag($userAnswers);
 
             // Calculate overall category based on average score (using percentage)
             $overallCategory = $this->categorizeScore($averageScore);
@@ -200,10 +194,7 @@ class TestTakingController extends Controller
                 'overall_category' => $overallCategory,
                 'cluster_scores' => $clusterScores,
                 'construct_scores' => $constructScores,
-                'sdb_raw_score' => $sdbData['raw_score'],
-                'sdb_percentage' => $sdbData['percentage'],
-                'sdb_band' => $sdbData['band'],
-                'sdb_flag' => $sdbData['flag']
+                'sdb_flag' => $sdbFlag
             ]);
 
             // Format radar chart data
@@ -260,13 +251,7 @@ class TestTakingController extends Controller
                     'overall_category' => $overallCategory,
                     'cluster_scores' => $clusterScores,
                     'construct_scores' => $constructScores,
-                    'sdb' => [
-                        'raw_score' => $sdbData['raw_score'],
-                        'percentage' => $sdbData['percentage'],
-                        'band' => $sdbData['band'],
-                        'flag' => $sdbData['flag'],
-                        'count' => $sdbData['count']
-                    ],
+                    'sdb_flag' => $sdbFlag,
                     'radar_chart' => $radarChartData,
                     'total_questions_answered' => count($answers)
                 ]
@@ -438,77 +423,29 @@ private function calculateClusterScores($userAnswers, $test)
     }
 
     /**
-     * Calculate SDB score separately
-     * Step 1: Sum all SDB items (18 items)
-     * Step 2: Calculate average: SDB (Raw) = Sum of 18 items / 18
-     * Step 3: Convert to percentage: ((raw_score - 1) / 4) * 100
-     * Step 4: Categorize into bands:
-     *   - GREEN (Authentic): 0-70% (Raw Score 1.0-3.8)
-     *   - AMBER (Managing): 71-85% (Raw Score 3.81-4.4)
-     *   - RED (Idealized): 86-100% (Raw Score 4.41-5.0)
+     * Check for Social Desirability Bias flag
+     * If too many SDB questions have high scores (4 or 5), flag it
      */
-    private function calculateSDBScore($userAnswers)
+    private function checkSDBFlag($userAnswers)
     {
-        // Filter only SDB answers
         $sdbAnswers = array_filter($userAnswers, function ($answer) {
             return $answer['category'] === 'SDB';
         });
 
         if (count($sdbAnswers) === 0) {
-            return [
-                'raw_score' => null,
-                'percentage' => null,
-                'band' => null,
-                'flag' => false
-            ];
+            return false;
         }
 
-        // Step 1: Sum all SDB final scores
-        $sdbSum = 0;
-        $sdbCount = 0;
+        $highScoreCount = 0;
         foreach ($sdbAnswers as $answer) {
-            $sdbSum += $answer['final_score'];
-            $sdbCount++;
+            if ($answer['answer_value'] >= 4) {
+                $highScoreCount++;
+            }
         }
 
-        // Step 2: Calculate average (Raw Score)
-        $sdbRawScore = $sdbCount > 0 ? $sdbSum / $sdbCount : 0;
-        $sdbRawScore = round($sdbRawScore, 2);
-
-        // Step 3: Convert to percentage
-        $sdbPercentage = $this->convertToPercentage($sdbRawScore);
-        $sdbPercentage = round($sdbPercentage, 0); // Round to whole number
-
-        // Step 4: Categorize into bands
-        $sdbBand = $this->categorizeSDBBand($sdbPercentage);
-
-        // Flag: RED band indicates invalid/idealized responses
-        $sdbFlag = ($sdbBand === 'RED');
-
-        return [
-            'raw_score' => $sdbRawScore,
-            'percentage' => $sdbPercentage,
-            'band' => $sdbBand,
-            'flag' => $sdbFlag,
-            'count' => $sdbCount
-        ];
-    }
-
-    /**
-     * Categorize SDB percentage into bands based on image specifications:
-     * - GREEN (Authentic): 0-70% (Raw Score 1.0-3.8)
-     * - AMBER (Managing): 71-85% (Raw Score 3.81-4.4)
-     * - RED (Idealized): 86-100% (Raw Score 4.41-5.0)
-     */
-    private function categorizeSDBBand($percentage)
-    {
-        if ($percentage <= 70) {
-            return 'GREEN';
-        } elseif ($percentage <= 85) {
-            return 'AMBER';
-        } else {
-            return 'RED';
-        }
+        // Flag if more than 70% of SDB questions have high scores
+        $threshold = count($sdbAnswers) * 0.7;
+        return $highScoreCount > $threshold;
     }
 
     /**
@@ -621,12 +558,7 @@ private function calculateClusterScores($userAnswers, $test)
                     'overall_category' => $testResult->overall_category ?? $this->categorizeScore($testResult->average_score ?? 0),
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
-                    'sdb' => [
-                        'raw_score' => $testResult->sdb_raw_score,
-                        'percentage' => $testResult->sdb_percentage,
-                        'band' => $testResult->sdb_band,
-                        'flag' => $testResult->sdb_flag,
-                    ],
+                    'sdb_flag' => $testResult->sdb_flag,
                 ],
                 'radar_chart' => $radarChartData,
                 'status' => $testResult->status,
@@ -733,12 +665,6 @@ private function calculateClusterScores($userAnswers, $test)
                     'average_percentage' => round($this->convertToPercentage($testResult->average_score ?? 0), 0), // Rounded to whole number
                     'cluster_scores' => $testResult->cluster_scores,
                     'construct_scores' => $testResult->construct_scores,
-                    'sdb' => [
-                        'raw_score' => $testResult->sdb_raw_score,
-                        'percentage' => $testResult->sdb_percentage,
-                        'band' => $testResult->sdb_band,
-                        'flag' => $testResult->sdb_flag,
-                    ],
                 ],
                 'radar_chart' => $radarChartData,
                 'status' => $testResult->status,
@@ -975,12 +901,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'questions' => $questionsWithAnswers,
                 'clusters' => $clusterScores,
                 'constructs' => $constructScores,
-                'sdb' => [
-                    'raw_score' => $testResult->sdb_raw_score,
-                    'percentage' => $testResult->sdb_percentage,
-                    'band' => $testResult->sdb_band,
-                    'flag' => $testResult->sdb_flag,
-                ],
+                'sdb_flag' => $testResult->sdb_flag,
                 'status' => $testResult->status,
                 'submitted_at' => optional($testResult->created_at)->toDateTimeString(),
                 'updated_at' => optional($testResult->updated_at)->toDateTimeString(),
@@ -1092,9 +1013,7 @@ private function calculateClusterScores($userAnswers, $test)
         $userColumnCount   = count($userHeaders);
         $clusterCount      = count($clusterNames);
         $constructCount    = count($constructNames);
-        // One extra summary column for SDB (raw score)
-        $sdbColumnCount    = 1;
-        $summaryColsCount  = $clusterCount + $constructCount + $sdbColumnCount;
+        $summaryColsCount  = $clusterCount + $constructCount;
         $rows = [];
 
         $clusterHeader = array_merge(
@@ -1129,23 +1048,21 @@ private function calculateClusterScores($userAnswers, $test)
             }
         }
 
-        // 1) Cluster row over question columns, then "Clusters"/"Constructs"/"SDB" headings at the far right
+        // 1) Cluster row over question columns, then "Clusters"/"Constructs" headings at the far right
         $rows[] = array_merge(
             $clusterHeader,
             $clusterSummaryHeading,
-            $constructSummaryHeading,
-            ['SDB']
+            $constructSummaryHeading
         );
 
-        // 2) Construct row over question columns, then each cluster/construct name as column labels (SDB column is empty on this row)
+        // 2) Construct row over question columns, then each cluster/construct name as column labels
         $rows[] = array_merge(
             $constructHeader,
             $clusterNames,
-            $constructNames,
-            [null]
+            $constructNames
         );
 
-        // 3) Question labels row, with empty cells in the summary section (including SDB column)
+        // 3) Question labels row, with empty cells in the summary section
         $rows[] = array_merge(
             $questionHeader,
             array_fill(0, $summaryColsCount, null)
@@ -1155,10 +1072,12 @@ private function calculateClusterScores($userAnswers, $test)
             $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
             $questionMap = $this->indexQuestionsById($result['questions'] ?? []);
 
+            $textRow = [];
             $scoreRow = [];
 
             foreach ($questionColumns as $column) {
                 $question = $questionMap[$column['question_id']] ?? null;
+                $textRow[] = $question['question_text'] ?? $column['question_text'];
                 $scoreRow[] = data_get($question, 'answer.final_score');
             }
 
@@ -1177,16 +1096,19 @@ private function calculateClusterScores($userAnswers, $test)
                 $constructValues[] = $entry ? $this->extractPercentageScore($entry) : null;
             }
 
-            // SDB raw score (average of 18 items) – no percentage
-            $sdbRawScore = data_get($result, 'sdb.raw_score');
-
-            // User info + scores + summary scores (cluster, construct, SDB)
+            // User + question text + empty summary cells
             $rows[] = array_merge(
                 $userRow,
+                $textRow,
+                array_fill(0, $summaryColsCount, null)
+            );
+
+            // Score row (only scores + summary percentages)
+            $rows[] = array_merge(
+                array_fill(0, $userColumnCount, null),
                 $scoreRow,
                 $clusterValues,
-                $constructValues,
-                [$sdbRawScore]
+                $constructValues
             );
 
             // Blank separator row
@@ -1313,22 +1235,21 @@ private function calculateClusterScores($userAnswers, $test)
             $constructPositions = array_map(fn ($data) => $data['order'], $constructs);
             asort($constructPositions);
 
+            $questionNumber = 1;
+
             foreach (array_keys($constructPositions) as $constructName) {
                 $questions = $constructs[$constructName]['questions'] ?? [];
                 uasort($questions, fn ($a, $b) => ($a['order'] ?? 0) <=> ($b['order'] ?? 0));
 
                 foreach ($questions as $meta) {
-                    $labelQuestionText = $meta['question_text'] ?? '';
-                    $labelCategory = $meta['category'] ?? '';
-
                     $columns[] = [
                         'cluster' => $clusterName,
                         'construct' => $constructName,
                         'question_id' => $meta['question_id'],
                         'question_text' => $meta['question_text'],
-                        // Header format: "I want to win (P)"
-                        'label' => trim(sprintf('%s (%s)', $labelQuestionText, $labelCategory)),
+                        'label' => sprintf('Q%d(%s)', $questionNumber, $meta['category']),
                     ];
+                    $questionNumber++;
                 }
             }
         }

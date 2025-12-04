@@ -35,26 +35,20 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
      */
     public function model(array $row)
     {
-        // Determine construct_id: from parameter or from Excel row
+        // Construct ID is now optional - questions can be uploaded without assignment
+        // If construct_id is provided (from parameter or Excel), validate it exists
         $constructId = $this->constructId ?? $row['construct_id'] ?? null;
 
-        if (!$constructId) {
-            $this->failureCount++;
-            $this->errors[] = [
-                'row' => $row,
-                'error' => 'Construct ID is required'
-            ];
-            return null;
-        }
-
-        // Validate construct exists
-        if (!\App\Models\Construct::find($constructId)) {
-            $this->failureCount++;
-            $this->errors[] = [
-                'row' => $row,
-                'error' => "Construct ID {$constructId} does not exist"
-            ];
-            return null;
+        if ($constructId) {
+            // Validate construct exists if provided
+            if (!\App\Models\Construct::find($constructId)) {
+                $this->failureCount++;
+                $this->errors[] = [
+                    'row' => $row,
+                    'error' => "Construct ID {$constructId} does not exist"
+                ];
+                return null;
+            }
         }
 
         // Map category values (handle case-insensitive)

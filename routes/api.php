@@ -70,6 +70,10 @@ Route::get('constructs/{constructId}/questions', [QuestionsController::class, 'b
 // Questions Bulk Upload
 Route::post('questions/bulk-upload', [QuestionsController::class, 'bulkUpload']);
 
+// Questions Construct Assignment
+Route::post('questions/{id}/assign-construct', [QuestionsController::class, 'assignConstruct']);
+Route::post('questions/bulk-assign-construct', [QuestionsController::class, 'bulkAssignConstruct']);
+
 // Tests CRUD (public for now)
 Route::get('tests', [TestController::class, 'index']);
 Route::get('tests/{id}', [TestController::class, 'show']);

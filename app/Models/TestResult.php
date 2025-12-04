@@ -18,17 +18,12 @@ class TestResult extends Model
         'cluster_scores',
         'construct_scores',
         'sdb_flag',
-        'sdb_raw_score',
-        'sdb_percentage',
-        'sdb_band',
         'status',
         'expert_id'
     ];
 
     protected $casts = [
         'sdb_flag' => 'boolean',
-        'sdb_raw_score' => 'float',
-        'sdb_percentage' => 'float',
     ];
 
     /**

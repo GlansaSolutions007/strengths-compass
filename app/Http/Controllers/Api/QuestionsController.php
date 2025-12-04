@@ -186,15 +186,13 @@ class QuestionsController extends Controller
     /**
      * Bulk upload questions from Excel file
      * 
-     * Supports two modes:
-     * 1. With construct_id in request: All questions will be assigned to that construct
-     * 2. Without construct_id: Excel file must have construct_id column
+     * Questions are uploaded without construct assignment.
+     * Use assignConstruct or bulkAssignConstruct to assign questions to constructs later.
      */
     public function bulkUpload(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'file' => 'required|mimes:xlsx,xls,csv|max:10240', // 10MB max
-            'construct_id' => 'sometimes|nullable|exists:constructs,id',
         ]);
 
         if ($validator->fails()) {
@@ -207,21 +205,9 @@ class QuestionsController extends Controller
 
         try {
             $file = $request->file('file');
-            $constructId = $request->input('construct_id');
 
-            // If construct_id is provided, validate it exists
-            if ($constructId) {
-                $construct = Construct::find($constructId);
-                if (!$construct) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'Construct not found',
-                    ], 404);
-                }
-            }
-
-            // Create import instance with optional construct_id
-            $import = new QuestionsImport($constructId);
+            // Create import instance without construct_id (questions uploaded without assignment)
+            $import = new QuestionsImport(null);
 
             // Import the file
             Excel::import($import, $file);
@@ -270,5 +256,105 @@ class QuestionsController extends Controller
                 'message' => 'Error processing Excel file: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Assign a single question to a construct
+     */
+    public function assignConstruct(Request $request, string $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'construct_id' => 'required|exists:constructs,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed',
+            ], 422);
+        }
+
+        $question = Question::find($id);
+
+        if (!$question) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Question not found',
+            ], 404);
+        }
+
+        $constructId = $request->input('construct_id');
+        $construct = Construct::find($constructId);
+
+        if (!$construct) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Construct not found',
+            ], 404);
+        }
+
+        $question->construct_id = $constructId;
+        $question->save();
+        $question->load('construct');
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Question assigned to construct successfully',
+            'data' => $question,
+        ], 200);
+    }
+
+    /**
+     * Bulk assign multiple questions to a construct
+     */
+    public function bulkAssignConstruct(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'question_ids' => 'required|array',
+            'question_ids.*' => 'required|exists:questions,id',
+            'construct_id' => 'required|exists:constructs,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed',
+            ], 422);
+        }
+
+        $questionIds = $request->input('question_ids');
+        $constructId = $request->input('construct_id');
+
+        $construct = Construct::find($constructId);
+        if (!$construct) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Construct not found',
+            ], 404);
+        }
+
+        // Verify all questions exist
+        $questions = Question::whereIn('id', $questionIds)->get();
+        if ($questions->count() !== count($questionIds)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Some questions were not found',
+            ], 404);
+        }
+
+        // Bulk update
+        $updated = Question::whereIn('id', $questionIds)
+            ->update(['construct_id' => $constructId]);
+
+        return response()->json([
+            'status' => true,
+            'message' => "Successfully assigned {$updated} question(s) to construct",
+            'data' => [
+                'updated_count' => $updated,
+                'total_requested' => count($questionIds),
+            ],
+        ], 200);
     }
 }
