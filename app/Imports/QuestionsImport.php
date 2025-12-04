@@ -97,11 +97,14 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
     public function rules(): array
     {
         return [
-            'question_text' => 'required',
-            'question' => 'sometimes|required', // Alternative column name
+            // Only question_text (or question) and category are required
+            'question_text' => 'required_without:question',
+            'question' => 'sometimes|required_without:question_text', // Alternative column name
             'category' => 'required|in:P,R,SDB',
-            'order_no' => 'required|integer',
-            'order' => 'sometimes|required|integer', // Alternative column name
+
+            // order_no / order are optional, but must be integers if provided
+            'order_no' => 'sometimes|nullable|integer',
+            'order' => 'sometimes|nullable|integer', // Alternative column name
         ];
     }
 
