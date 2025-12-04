@@ -3,6 +3,7 @@
 namespace App\Imports;
 
 use App\Models\QuestionsModel as Question;
+use Maatwebsite\Excel\Imports\HeadingRowFormatter;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithValidation;
@@ -17,6 +18,16 @@ use Maatwebsite\Excel\Concerns\WithChunkReading;
 class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnFailure, WithBatchInserts, WithChunkReading
 {
     use SkipsFailures;
+
+    /**
+     * By default, Laravel Excel "slugifies" heading row values (e.g. "Question Text" -> "question-text").
+     * We want to use the headings exactly as they appear in the Excel file (e.g. "question_text"),
+     * so we disable the automatic formatter here.
+     */
+    public static function bootHeadingFormatter(): void
+    {
+        HeadingRowFormatter::default('none');
+    }
 
     protected $constructId;
     protected $errors = [];
