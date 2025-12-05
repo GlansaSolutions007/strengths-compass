@@ -82,10 +82,22 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
 
         $this->successCount++;
 
+        // Handle age_group_id - can be provided directly or looked up by name
+        $ageGroupId = null;
+        if (isset($row['age_group_id'])) {
+            $ageGroupId = $row['age_group_id'];
+        } elseif (isset($row['age_group'])) {
+            // Try to find age group by name
+            $ageGroup = \App\Models\AgeGroup::where('name', $row['age_group'])->first();
+            if ($ageGroup) {
+                $ageGroupId = $ageGroup->id;
+            }
+        }
+
         return new Question([
             'construct_id' => $constructId,
             'question_text' => $row['question_text'] ?? $row['question'] ?? '',
-            'age_group' => $row['age_group'] ?? null,
+            'age_group_id' => $ageGroupId,
             'category' => $category,
             'order_no' => $row['order_no'] ?? $row['order'] ?? 0,
             'is_active' => $isActive,

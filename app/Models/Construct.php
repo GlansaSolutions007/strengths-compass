@@ -14,7 +14,7 @@ class Construct extends Model
         'name',
         'short_code',
         'description',
-        'age_group',
+        'age_group_id',
         'definition',
         'high_behavior',
         'medium_behavior',
@@ -31,6 +31,11 @@ class Construct extends Model
     public function cluster()
     {
         return $this->belongsTo(Cluster::class);
+    }
+
+    public function ageGroup()
+    {
+        return $this->belongsTo(AgeGroup::class);
     }
 }
 

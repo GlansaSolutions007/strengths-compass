@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\TestTakingController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\CountryController;
 use App\Http\Controllers\Api\StateController;
+use App\Http\Controllers\Api\AgeGroupController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -39,6 +40,13 @@ Route::post('options', [OptionsController::class, 'store']);
 Route::get('options/{id}', [OptionsController::class, 'show']);
 Route::put('options/{id}', [OptionsController::class, 'update']);
 Route::delete('options/{id}', [OptionsController::class, 'destroy']);
+
+// Age Groups CRUD (public for now)
+Route::get('age-groups', [AgeGroupController::class, 'index']);
+Route::post('age-groups', [AgeGroupController::class, 'store']);
+Route::get('age-groups/{id}', [AgeGroupController::class, 'show']);
+Route::put('age-groups/{id}', [AgeGroupController::class, 'update']);
+Route::delete('age-groups/{id}', [AgeGroupController::class, 'destroy']);
 
 // Cluster CRUD (public for now)
 Route::get('clusters', [ClusterController::class, 'index']);

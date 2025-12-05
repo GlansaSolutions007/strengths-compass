@@ -9,7 +9,7 @@ class Test extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title', 'description', 'age_group', 'is_active'];
+    protected $fillable = ['title', 'description', 'age_group_id', 'is_active'];
 
     /**
      * Get clusters associated with this test
@@ -66,6 +66,14 @@ class Test extends Model
     public function testResults()
     {
         return $this->hasMany(TestResult::class);
+    }
+
+    /**
+     * Get the age group for this test
+     */
+    public function ageGroup()
+    {
+        return $this->belongsTo(AgeGroup::class);
     }
 }
 

@@ -17,7 +17,7 @@ class TestController extends Controller
      */
     public function index()
     {
-        $query = Test::with('clusters');
+        $query = Test::with(['clusters', 'ageGroup']);
 
         // Filter by is_active if provided
         if (request()->has('is_active')) {
@@ -48,7 +48,7 @@ class TestController extends Controller
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'age_group' => 'nullable|string|max:255',
+            'age_group_id' => 'nullable|exists:age_groups,id',
             'is_active' => 'sometimes|boolean',
             'cluster_ids' => 'sometimes|array',
             'cluster_ids.*' => 'exists:clusters,id',
@@ -68,7 +68,7 @@ class TestController extends Controller
         }
 
         try {
-            $test = Test::create($request->only(['title', 'description', 'age_group', 'is_active']));
+            $test = Test::create($request->only(['title', 'description', 'age_group_id', 'is_active']));
 
             // Handle cluster_ids (simple array format - backward compatibility)
             if ($request->has('cluster_ids') && is_array($request->cluster_ids)) {
@@ -126,7 +126,7 @@ class TestController extends Controller
      */
     public function show(string $id)
     {
-        $test = Test::with(['clusters', 'clusters.constructs'])->find($id);
+        $test = Test::with(['clusters', 'clusters.constructs', 'ageGroup'])->find($id);
 
         if (!$test) {
             return response()->json([
@@ -166,7 +166,7 @@ class TestController extends Controller
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
-            'age_group' => 'nullable|string|max:255',
+            'age_group_id' => 'nullable|exists:age_groups,id',
             'is_active' => 'sometimes|boolean',
             'clusters' => 'sometimes|array',
             'clusters.*.cluster_id' => 'required|exists:clusters,id',
@@ -183,7 +183,7 @@ class TestController extends Controller
             ], 422);
         }
 
-        $test->update($request->only(['title', 'description', 'age_group', 'is_active']));
+        $test->update($request->only(['title', 'description', 'age_group_id', 'is_active']));
 
         // Sync clusters with category counts if provided
         if ($request->has('clusters')) {

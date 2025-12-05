@@ -13,7 +13,7 @@ class ClusterController extends Controller
     // ✅ Get All Clusters
     public function index()
     {
-        $clusters = Cluster::with('constructs')->get();
+        $clusters = Cluster::with(['constructs', 'ageGroup'])->get();
 
         return response()->json([
             'status' => true,
@@ -25,7 +25,7 @@ class ClusterController extends Controller
     // ✅ Get Single Cluster
     public function show($id)
     {
-        $cluster = Cluster::with('constructs')->find($id);
+        $cluster = Cluster::with(['constructs', 'ageGroup'])->find($id);
 
         if (!$cluster) {
             return response()->json([
@@ -47,7 +47,7 @@ class ClusterController extends Controller
             'name' => 'required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'age_group' => 'nullable|string|max:255',
+            'age_group_id' => 'nullable|exists:age_groups,id',
             'high_behaviour' => 'nullable|string',
             'medium_behaviour' => 'nullable|string',
             'low_behaviour' => 'nullable|string',
@@ -60,7 +60,7 @@ class ClusterController extends Controller
             ], 422);
         }
 
-        $cluster = Cluster::create($request->only('name', 'short_code', 'description', 'age_group', 'high_behaviour', 'medium_behaviour', 'low_behaviour'));
+        $cluster = Cluster::create($request->only('name', 'short_code', 'description', 'age_group_id', 'high_behaviour', 'medium_behaviour', 'low_behaviour'));
 
         return response()->json([
             'status' => true,
@@ -85,7 +85,7 @@ class ClusterController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'age_group' => 'nullable|string|max:255',
+            'age_group_id' => 'nullable|exists:age_groups,id',
             'high_behaviour' => 'nullable|string',
             'medium_behaviour' => 'nullable|string',
             'low_behaviour' => 'nullable|string',
@@ -98,7 +98,7 @@ class ClusterController extends Controller
             ], 422);
         }
 
-        $cluster->update($request->only('name', 'short_code', 'description', 'age_group', 'high_behaviour', 'medium_behaviour', 'low_behaviour'));
+        $cluster->update($request->only('name', 'short_code', 'description', 'age_group_id', 'high_behaviour', 'medium_behaviour', 'low_behaviour'));
 
         return response()->json([
             'status' => true,

@@ -11,7 +11,7 @@ class Cluster extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'short_code', 'description', 'age_group', 'high_behaviour', 'medium_behaviour', 'low_behaviour', 'is_active', 'is_deleted'];
+    protected $fillable = ['name', 'short_code', 'description', 'age_group_id', 'high_behaviour', 'medium_behaviour', 'low_behaviour', 'is_active', 'is_deleted'];
 
     public function constructs()
     {
@@ -21,5 +21,10 @@ class Cluster extends Model
     public function tests()
     {
         return $this->belongsToMany(Test::class, 'test_cluster');
+    }
+
+    public function ageGroup()
+    {
+        return $this->belongsTo(AgeGroup::class);
     }
 }

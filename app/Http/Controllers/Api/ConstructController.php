@@ -13,7 +13,7 @@ class ConstructController extends Controller
     // ✅ Get All Constructs (optionally filtered by cluster_id)
     public function index(Request $request)
     {
-        $query = Construct::with('cluster');
+        $query = Construct::with(['cluster', 'ageGroup']);
 
         // Filter by cluster_id if provided
         if ($request->has('cluster_id')) {
@@ -41,7 +41,7 @@ class ConstructController extends Controller
         }
 
         $constructs = Construct::where('cluster_id', $clusterId)
-            ->with('cluster')
+            ->with(['cluster', 'ageGroup'])
             ->orderBy('display_order')
             ->get();
 
@@ -54,7 +54,7 @@ class ConstructController extends Controller
     // ✅ Get Single Construct
     public function show($id)
     {
-        $construct = Construct::with('cluster')->find($id);
+        $construct = Construct::with(['cluster', 'ageGroup'])->find($id);
 
         if (!$construct) {
             return response()->json([
@@ -77,7 +77,7 @@ class ConstructController extends Controller
             'name' => 'required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'age_group' => 'nullable|string|max:255',
+            'age_group_id' => 'nullable|exists:age_groups,id',
             'definition' => 'nullable|string',
             'high_behavior' => 'nullable|string',
             'medium_behavior' => 'nullable|string',
@@ -101,7 +101,7 @@ class ConstructController extends Controller
             'name',
             'short_code',
             'description',
-            'age_group',
+            'age_group_id',
             'definition',
             'high_behavior',
             'medium_behavior',
@@ -139,7 +139,7 @@ class ConstructController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
-            'age_group' => 'nullable|string|max:255',
+            'age_group_id' => 'nullable|exists:age_groups,id',
             'definition' => 'nullable|string',
             'high_behavior' => 'nullable|string',
             'medium_behavior' => 'nullable|string',
@@ -163,7 +163,7 @@ class ConstructController extends Controller
             'name',
             'short_code',
             'description',
-            'age_group',
+            'age_group_id',
             'definition',
             'high_behavior',
             'medium_behavior',
