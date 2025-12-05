@@ -9,7 +9,7 @@ class Test extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title', 'description', 'is_active'];
+    protected $fillable = ['title', 'description', 'age_group', 'is_active'];
 
     /**
      * Get clusters associated with this test

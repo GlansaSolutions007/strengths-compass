@@ -48,6 +48,7 @@ class QuestionsController extends Controller
         $validator = Validator::make($request->all(), [
             'construct_id' => 'required|exists:constructs,id',
             'question_text' => 'required|string',
+            'age_group' => 'nullable|string|max:255',
             'category' => 'required|in:P,R,SDB',
             'order_no' => 'required|integer',
             'is_active' => 'sometimes|boolean',
@@ -61,7 +62,7 @@ class QuestionsController extends Controller
         }
 
         $question = Question::create($request->only([
-            'construct_id', 'question_text', 'category', 'order_no', 'is_active'
+            'construct_id', 'question_text', 'age_group', 'category', 'order_no', 'is_active'
         ]));
 
         $question->load('construct');
@@ -111,6 +112,7 @@ class QuestionsController extends Controller
         $validator = Validator::make($request->all(), [
             'construct_id' => 'sometimes|required|exists:constructs,id',
             'question_text' => 'sometimes|required|string',
+            'age_group' => 'nullable|string|max:255',
             'category' => 'sometimes|required|in:P,R,SDB',
             'order_no' => 'sometimes|required|integer',
             'is_active' => 'sometimes|boolean',
@@ -124,7 +126,7 @@ class QuestionsController extends Controller
         }
 
         $question->update($request->only([
-            'construct_id', 'question_text', 'category', 'order_no', 'is_active'
+            'construct_id', 'question_text', 'age_group', 'category', 'order_no', 'is_active'
         ]));
 
         $question->load('construct');

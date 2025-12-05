@@ -85,6 +85,7 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
         return new Question([
             'construct_id' => $constructId,
             'question_text' => $row['question_text'] ?? $row['question'] ?? '',
+            'age_group' => $row['age_group'] ?? null,
             'category' => $category,
             'order_no' => $row['order_no'] ?? $row['order'] ?? 0,
             'is_active' => $isActive,

@@ -14,6 +14,7 @@ class Construct extends Model
         'name',
         'short_code',
         'description',
+        'age_group',
         'definition',
         'high_behavior',
         'medium_behavior',
