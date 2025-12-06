@@ -11,9 +11,27 @@ use Illuminate\Support\Facades\Schema;
 class ClusterController extends Controller
 {
     // ✅ Get All Clusters
-    public function index()
+    public function index(Request $request)
     {
-        $clusters = Cluster::with(['constructs', 'ageGroup'])->get();
+        $query = Cluster::with(['constructs', 'ageGroup']);
+
+        // Get age_group_id from request or session
+        $ageGroupId = $request->input('age_group_id');
+        
+        // If provided in request, store it in session
+        if ($ageGroupId !== null) {
+            session(['selected_age_group_id' => $ageGroupId]);
+        } else {
+            // Otherwise, get from session
+            $ageGroupId = session('selected_age_group_id');
+        }
+
+        // Filter by age_group_id if available
+        if ($ageGroupId !== null) {
+            $query->where('age_group_id', $ageGroupId);
+        }
+
+        $clusters = $query->get();
 
         return response()->json([
             'status' => true,

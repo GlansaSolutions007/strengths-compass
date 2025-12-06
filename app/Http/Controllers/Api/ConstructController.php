@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Validator;
 
 class ConstructController extends Controller
 {
-    // ✅ Get All Constructs (optionally filtered by cluster_id)
+    // ✅ Get All Constructs (optionally filtered by cluster_id or age_group_id)
     public function index(Request $request)
     {
         $query = Construct::with(['cluster', 'ageGroup']);
@@ -18,6 +18,22 @@ class ConstructController extends Controller
         // Filter by cluster_id if provided
         if ($request->has('cluster_id')) {
             $query->where('cluster_id', $request->cluster_id);
+        }
+
+        // Get age_group_id from request or session
+        $ageGroupId = $request->input('age_group_id');
+        
+        // If provided in request, store it in session
+        if ($ageGroupId !== null) {
+            session(['selected_age_group_id' => $ageGroupId]);
+        } else {
+            // Otherwise, get from session
+            $ageGroupId = session('selected_age_group_id');
+        }
+
+        // Filter by age_group_id if available
+        if ($ageGroupId !== null) {
+            $query->where('age_group_id', $ageGroupId);
         }
 
         $constructs = $query->orderBy('display_order')->get();

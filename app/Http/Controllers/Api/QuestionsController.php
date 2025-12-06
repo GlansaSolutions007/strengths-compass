@@ -15,20 +15,36 @@ class QuestionsController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         $query = Question::with(['construct', 'ageGroup']);
 
-        if (request()->has('construct_id')) {
-            $query->where('construct_id', request('construct_id'));
+        if ($request->has('construct_id')) {
+            $query->where('construct_id', $request->construct_id);
         }
 
-        if (request()->has('category')) {
-            $query->where('category', request('category'));
+        // Get age_group_id from request or session
+        $ageGroupId = $request->input('age_group_id');
+        
+        // If provided in request, store it in session
+        if ($ageGroupId !== null) {
+            session(['selected_age_group_id' => $ageGroupId]);
+        } else {
+            // Otherwise, get from session
+            $ageGroupId = session('selected_age_group_id');
         }
 
-        if (request()->has('is_active')) {
-            $query->where('is_active', filter_var(request('is_active'), FILTER_VALIDATE_BOOLEAN));
+        // Filter by age_group_id if available
+        if ($ageGroupId !== null) {
+            $query->where('age_group_id', $ageGroupId);
+        }
+
+        if ($request->has('category')) {
+            $query->where('category', $request->category);
+        }
+
+        if ($request->has('is_active')) {
+            $query->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
         }
 
         $questions = $query->orderBy('order_no')->get();

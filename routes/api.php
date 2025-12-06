@@ -26,6 +26,8 @@ Route::post('logout', [AuthController::class, 'logout']);
 Route::post('change-password', [AuthController::class, 'changePassword']); // Change own password (requires auth)
 Route::post('forgot-password', [AuthController::class, 'forgotPassword']); // Request password reset
 Route::post('reset-password', [AuthController::class, 'resetPassword']); // Reset password with temporary password
+Route::post('set-age-group', [AuthController::class, 'setAgeGroup']); // Set age group (admin can select any, user only their own)
+Route::get('current-age-group', [AuthController::class, 'getCurrentAgeGroup']); // Get current selected age group
 
 // User routes (public for now)
 Route::get('users', [UserController::class, 'index']);
@@ -48,6 +50,9 @@ Route::get('age-groups/{id}', [AgeGroupController::class, 'show']);
 Route::put('age-groups/{id}', [AgeGroupController::class, 'update']);
 Route::delete('age-groups/{id}', [AgeGroupController::class, 'destroy']);
 Route::patch('age-groups/{id}/toggle-active', [AgeGroupController::class, 'toggleActive']);
+// Clone clusters and constructs - source can be in URL or request body
+Route::post('age-groups/{id}/clone-clusters-constructs', [AgeGroupController::class, 'cloneClustersAndConstructs']);
+Route::post('age-groups/clone-clusters-constructs', [AgeGroupController::class, 'cloneClustersAndConstructs']);
 
 // Cluster CRUD (public for now)
 Route::get('clusters', [ClusterController::class, 'index']);

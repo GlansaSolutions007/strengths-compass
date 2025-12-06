@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Mail\WelcomeMail;
 use App\Mail\ForgotPasswordMail;
 use App\Models\User;
+use App\Models\AgeGroup;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -170,11 +171,23 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        // Set age group in session based on user role
+        $ageGroupId = null;
+        if ($role === 'user' && $user->age) {
+            // For regular users, automatically determine age group from their age
+            $ageGroupId = $this->getAgeGroupIdByAge($user->age);
+            if ($ageGroupId) {
+                session(['selected_age_group_id' => $ageGroupId]);
+            }
+        }
+        // For admin, age group will be set manually via the set-age-group endpoint
+
         return response()->json([
             'data' => [
                 'user' => $user,
                 'token' => $token,
                 'token_type' => 'Bearer',
+                'age_group_id' => $ageGroupId, // Include in response for frontend
             ],
             'status' => 201,
             'message' => ucfirst($role) . ' registered successfully',
@@ -212,11 +225,25 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        // Set age group in session based on user role
+        $ageGroupId = null;
+        if ($user->role === 'user' && $user->age) {
+            // For regular users, automatically determine age group from their age
+            $ageGroupId = $this->getAgeGroupIdByAge($user->age);
+            if ($ageGroupId) {
+                session(['selected_age_group_id' => $ageGroupId]);
+            }
+        } else if ($user->role === 'admin') {
+            // For admin, check if they have a previously selected age group in session
+            $ageGroupId = session('selected_age_group_id');
+        }
+
         return response()->json([
             'data' => [
                 'user' => $user,
                 'token' => $token,
                 'token_type' => 'Bearer',
+                'age_group_id' => $ageGroupId, // Include in response for frontend
             ],
             'status' => 200,
             'message' => 'Login successful',
@@ -229,6 +256,9 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
+        
+        // Clear age group from session on logout
+        session()->forget('selected_age_group_id');
 
         return response()->json([
             'data' => [],
@@ -485,6 +515,186 @@ class AuthController extends Controller
             ],
             'status' => 200,
             'message' => 'Password has been reset successfully.',
+        ], 200);
+    }
+
+    /**
+     * Helper method to find age group ID based on user's age
+     */
+    private function getAgeGroupIdByAge($age)
+    {
+        $ageGroup = AgeGroup::where('from', '<=', $age)
+            ->where('to', '>=', $age)
+            ->where('is_active', true)
+            ->first();
+
+        return $ageGroup ? $ageGroup->id : null;
+    }
+
+    /**
+     * Set age group for admin (or override for user)
+     * Admin can select any age group, users can only see their own age group
+     */
+    public function setAgeGroup(Request $request)
+    {
+        $user = $request->user();
+
+        // If no user from middleware, try to authenticate manually using bearer token
+        if (!$user) {
+            $token = $request->bearerToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Please provide a valid token',
+                ], 401);
+            }
+
+            $accessToken = PersonalAccessToken::findToken($token);
+            
+            if (!$accessToken) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Invalid token',
+                ], 401);
+            }
+
+            $user = $accessToken->tokenable;
+            
+            if (!$user) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - User not found',
+                ], 401);
+            }
+        }
+
+        $validator = Validator::make($request->all(), [
+            'age_group_id' => 'required|exists:age_groups,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $ageGroupId = $request->input('age_group_id');
+
+        // For regular users, verify they can only select their own age group
+        if ($user->role === 'user') {
+            if (!$user->age) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 403,
+                    'message' => 'User age is not set. Cannot determine age group.',
+                ], 403);
+            }
+
+            $userAgeGroupId = $this->getAgeGroupIdByAge($user->age);
+            
+            if ($ageGroupId != $userAgeGroupId) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 403,
+                    'message' => 'You can only access data for your own age group.',
+                ], 403);
+            }
+        }
+
+        // Verify age group exists and is active
+        $ageGroup = AgeGroup::find($ageGroupId);
+        if (!$ageGroup) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'Age group not found',
+            ], 404);
+        }
+
+        // Store in session
+        session(['selected_age_group_id' => $ageGroupId]);
+
+        return response()->json([
+            'data' => [
+                'age_group' => $ageGroup,
+                'age_group_id' => $ageGroupId,
+            ],
+            'status' => 200,
+            'message' => 'Age group set successfully',
+        ], 200);
+    }
+
+    /**
+     * Get current selected age group
+     */
+    public function getCurrentAgeGroup(Request $request)
+    {
+        $user = $request->user();
+
+        // If no user from middleware, try to authenticate manually using bearer token
+        if (!$user) {
+            $token = $request->bearerToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Please provide a valid token',
+                ], 401);
+            }
+
+            $accessToken = PersonalAccessToken::findToken($token);
+            
+            if (!$accessToken) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Invalid token',
+                ], 401);
+            }
+
+            $user = $accessToken->tokenable;
+            
+            if (!$user) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - User not found',
+                ], 401);
+            }
+        }
+
+        $ageGroupId = session('selected_age_group_id');
+
+        if (!$ageGroupId) {
+            // For users, try to determine from their age
+            if ($user->role === 'user' && $user->age) {
+                $ageGroupId = $this->getAgeGroupIdByAge($user->age);
+                if ($ageGroupId) {
+                    session(['selected_age_group_id' => $ageGroupId]);
+                }
+            }
+        }
+
+        $ageGroup = null;
+        if ($ageGroupId) {
+            $ageGroup = AgeGroup::find($ageGroupId);
+        }
+
+        return response()->json([
+            'data' => [
+                'age_group' => $ageGroup,
+                'age_group_id' => $ageGroupId,
+            ],
+            'status' => 200,
+            'message' => 'Current age group retrieved successfully',
         ], 200);
     }
 }

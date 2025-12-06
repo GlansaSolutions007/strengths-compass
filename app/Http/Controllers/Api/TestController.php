@@ -15,13 +15,29 @@ class TestController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         $query = Test::with(['clusters', 'ageGroup']);
 
+        // Get age_group_id from request or session
+        $ageGroupId = $request->input('age_group_id');
+        
+        // If provided in request, store it in session
+        if ($ageGroupId !== null) {
+            session(['selected_age_group_id' => $ageGroupId]);
+        } else {
+            // Otherwise, get from session
+            $ageGroupId = session('selected_age_group_id');
+        }
+
+        // Filter by age_group_id if available
+        if ($ageGroupId !== null) {
+            $query->where('age_group_id', $ageGroupId);
+        }
+
         // Filter by is_active if provided
-        if (request()->has('is_active')) {
-            $query->where('is_active', filter_var(request('is_active'), FILTER_VALIDATE_BOOLEAN));
+        if ($request->has('is_active')) {
+            $query->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
         }
 
         $tests = $query->get();
