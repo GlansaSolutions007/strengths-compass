@@ -741,7 +741,10 @@ private function calculateClusterScores($userAnswers, $test)
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
 
-        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate);
+        // Get age group from session
+        $ageGroupId = session('selected_age_group_id');
+
+        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
         $formattedResults = $this->transformTestResults($testResults);
 
         return response()->json([
@@ -751,6 +754,7 @@ private function calculateClusterScores($userAnswers, $test)
             'filters' => [
                 'from_date' => $fromDate,
                 'to_date' => $toDate,
+                'age_group_id' => $ageGroupId,
             ],
             'message' => 'All test results fetched successfully'
         ], 200);
@@ -758,6 +762,7 @@ private function calculateClusterScores($userAnswers, $test)
 
     /**
      * Download comprehensive test results as an Excel file with multiple sheets.
+     * Filtered by selected age group from session.
      */
     public function downloadTestResultsExcel(Request $request)
     {
@@ -777,7 +782,10 @@ private function calculateClusterScores($userAnswers, $test)
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
 
-        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate);
+        // Get age group from session
+        $ageGroupId = session('selected_age_group_id');
+
+        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
         $formattedResults = $this->transformTestResults($testResults);
 
         $filteredResults = $formattedResults->filter(function ($result) {
@@ -788,7 +796,9 @@ private function calculateClusterScores($userAnswers, $test)
 
         return Excel::download(
             new UserTestDataExport(
-                $this->buildExportDatasets($filteredResults)['raw']
+                $this->buildExportDatasets($filteredResults)['raw'],
+                [], // Empty cluster data - not needed
+                []  // Empty construct data - not needed
             ),
             $fileName
         );
@@ -797,7 +807,7 @@ private function calculateClusterScores($userAnswers, $test)
     /**
      * Fetch test results with required relationships and optional date filters.
      */
-    protected function fetchTestResultsWithRelations(?string $fromDate, ?string $toDate): Collection
+    protected function fetchTestResultsWithRelations(?string $fromDate, ?string $toDate, ?int $ageGroupId = null): Collection
     {
         $query = TestResult::with([
             'user',
@@ -812,6 +822,13 @@ private function calculateClusterScores($userAnswers, $test)
 
         if ($toDate) {
             $query->where('created_at', '<=', Carbon::parse($toDate)->endOfDay());
+        }
+
+        // Filter by age group if provided (from session)
+        if ($ageGroupId) {
+            $query->whereHas('test', function ($q) use ($ageGroupId) {
+                $q->where('age_group_id', $ageGroupId);
+            });
         }
 
         return $query->get();

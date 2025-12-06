@@ -173,11 +173,15 @@ class AuthController extends Controller
 
         // Set age group in session based on user role
         $ageGroupId = null;
+        $ageGroup = null;
+        
         if ($role === 'user' && $user->age) {
             // For regular users, automatically determine age group from their age
             $ageGroupId = $this->getAgeGroupIdByAge($user->age);
             if ($ageGroupId) {
                 session(['selected_age_group_id' => $ageGroupId]);
+                session()->save(); // Ensure session is saved
+                $ageGroup = AgeGroup::find($ageGroupId);
             }
         }
         // For admin, age group will be set manually via the set-age-group endpoint
@@ -188,6 +192,7 @@ class AuthController extends Controller
                 'token' => $token,
                 'token_type' => 'Bearer',
                 'age_group_id' => $ageGroupId, // Include in response for frontend
+                'age_group' => $ageGroup, // Include age group details
             ],
             'status' => 201,
             'message' => ucfirst($role) . ' registered successfully',
@@ -227,15 +232,28 @@ class AuthController extends Controller
 
         // Set age group in session based on user role
         $ageGroupId = null;
+        $ageGroup = null;
+        
         if ($user->role === 'user' && $user->age) {
             // For regular users, automatically determine age group from their age
             $ageGroupId = $this->getAgeGroupIdByAge($user->age);
             if ($ageGroupId) {
                 session(['selected_age_group_id' => $ageGroupId]);
+                session()->save(); // Ensure session is saved
+                $ageGroup = AgeGroup::find($ageGroupId);
             }
         } else if ($user->role === 'admin') {
             // For admin, check if they have a previously selected age group in session
             $ageGroupId = session('selected_age_group_id');
+            if ($ageGroupId) {
+                $ageGroup = AgeGroup::find($ageGroupId);
+                // If age group was found in session but doesn't exist anymore, clear it
+                if (!$ageGroup) {
+                    session()->forget('selected_age_group_id');
+                    session()->save();
+                    $ageGroupId = null;
+                }
+            }
         }
 
         return response()->json([
@@ -244,6 +262,7 @@ class AuthController extends Controller
                 'token' => $token,
                 'token_type' => 'Bearer',
                 'age_group_id' => $ageGroupId, // Include in response for frontend
+                'age_group' => $ageGroup, // Include age group details
             ],
             'status' => 200,
             'message' => 'Login successful',
@@ -618,8 +637,9 @@ class AuthController extends Controller
             ], 404);
         }
 
-        // Store in session
+        // Store in session and ensure it's saved
         session(['selected_age_group_id' => $ageGroupId]);
+        session()->save(); // Explicitly save session to ensure persistence
 
         return response()->json([
             'data' => [
@@ -627,7 +647,7 @@ class AuthController extends Controller
                 'age_group_id' => $ageGroupId,
             ],
             'status' => 200,
-            'message' => 'Age group set successfully',
+            'message' => 'Age group set successfully and stored in session',
         ], 200);
     }
 

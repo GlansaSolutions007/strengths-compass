@@ -16,8 +16,8 @@ class UserTestDataExport implements WithMultipleSheets
      */
     public function __construct(
         protected array $rawData,
-        protected array $clusterData,
-        protected array $constructData
+        protected array $clusterData = [],
+        protected array $constructData = []
     ) {
     }
 
@@ -26,11 +26,20 @@ class UserTestDataExport implements WithMultipleSheets
      */
     public function sheets(): array
     {
-        return [
+        $sheets = [
             new RawTestDataSheet($this->rawData),
-            new ClusterSummarySheet($this->clusterData),
-            new ConstructSummarySheet($this->constructData),
         ];
+
+        // Only include cluster and construct sheets if data is provided
+        if (!empty($this->clusterData)) {
+            $sheets[] = new ClusterSummarySheet($this->clusterData);
+        }
+
+        if (!empty($this->constructData)) {
+            $sheets[] = new ConstructSummarySheet($this->constructData);
+        }
+
+        return $sheets;
     }
 }
 
