@@ -30,13 +30,15 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
     }
 
     protected $constructId;
+    protected $ageGroupId;
     protected $errors = [];
     protected $successCount = 0;
     protected $failureCount = 0;
 
-    public function __construct($constructId = null)
+    public function __construct($constructId = null, $ageGroupId = null)
     {
         $this->constructId = $constructId;
+        $this->ageGroupId = $ageGroupId;
     }
 
     /**
@@ -82,15 +84,41 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
 
         $this->successCount++;
 
-        // Handle age_group_id - can be provided directly or looked up by name
-        $ageGroupId = null;
-        if (isset($row['age_group_id'])) {
-            $ageGroupId = $row['age_group_id'];
-        } elseif (isset($row['age_group'])) {
-            // Try to find age group by name
-            $ageGroup = \App\Models\AgeGroup::where('name', $row['age_group'])->first();
-            if ($ageGroup) {
-                $ageGroupId = $ageGroup->id;
+        // Handle age_group_id - can be provided from constructor, Excel column, or looked up by name
+        $ageGroupId = $this->ageGroupId ?? null;
+        
+        // If not set from constructor, check Excel row
+        if ($ageGroupId === null) {
+            if (isset($row['age_group_id']) && !empty($row['age_group_id'])) {
+                // Validate age_group_id exists
+                $ageGroupIdValue = is_numeric($row['age_group_id']) ? (int)$row['age_group_id'] : null;
+                if ($ageGroupIdValue) {
+                    $ageGroup = \App\Models\AgeGroup::find($ageGroupIdValue);
+                    if ($ageGroup) {
+                        $ageGroupId = $ageGroupIdValue;
+                    } else {
+                        $this->failureCount++;
+                        $this->errors[] = [
+                            'row' => $row,
+                            'error' => "Age Group ID {$ageGroupIdValue} does not exist"
+                        ];
+                        return null;
+                    }
+                }
+            } elseif (isset($row['age_group']) && !empty($row['age_group'])) {
+                // Try to find age group by name (case-insensitive)
+                $ageGroupName = trim($row['age_group']);
+                $ageGroup = \App\Models\AgeGroup::where('name', 'like', $ageGroupName)->first();
+                if ($ageGroup) {
+                    $ageGroupId = $ageGroup->id;
+                } else {
+                    $this->failureCount++;
+                    $this->errors[] = [
+                        'row' => $row,
+                        'error' => "Age Group '{$ageGroupName}' not found"
+                    ];
+                    return null;
+                }
             }
         }
 
@@ -118,6 +146,10 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
             // order_no / order are optional, but must be integers if provided
             'order_no' => 'sometimes|nullable|integer',
             'order' => 'sometimes|nullable|integer', // Alternative column name
+
+            // age_group_id and age_group are optional
+            'age_group_id' => 'sometimes|nullable|integer|exists:age_groups,id',
+            'age_group' => 'sometimes|nullable|string', // Will be validated in model() method
         ];
     }
 

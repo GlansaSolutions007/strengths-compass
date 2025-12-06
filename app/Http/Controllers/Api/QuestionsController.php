@@ -211,6 +211,8 @@ class QuestionsController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'file' => 'required|mimes:xlsx,xls,csv|max:10240', // 10MB max
+            'construct_id' => 'nullable|exists:constructs,id',
+            'age_group_id' => 'nullable|exists:age_groups,id',
         ]);
 
         if ($validator->fails()) {
@@ -224,8 +226,19 @@ class QuestionsController extends Controller
         try {
             $file = $request->file('file');
 
-            // Create import instance without construct_id (questions uploaded without assignment)
-            $import = new QuestionsImport(null);
+            // Get construct_id from request or use null
+            $constructId = $request->input('construct_id');
+
+            // Get age_group_id from request, session, or use null
+            $ageGroupId = $request->input('age_group_id');
+            if (!$ageGroupId) {
+                // Fallback to session if not provided in request
+                $ageGroupId = session('selected_age_group_id');
+            }
+
+            // Create import instance with construct_id and age_group_id (if provided)
+            // These will be used as fallback if not present in Excel file
+            $import = new QuestionsImport($constructId, $ageGroupId);
 
             // Import the file
             Excel::import($import, $file);
@@ -241,6 +254,8 @@ class QuestionsController extends Controller
                     'success_count' => $stats['success'],
                     'failure_count' => $stats['failures'],
                     'total_processed' => $stats['success'] + $stats['failures'],
+                    'construct_id' => $constructId,
+                    'age_group_id' => $ageGroupId,
                 ],
             ];
 
