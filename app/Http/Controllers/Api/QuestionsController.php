@@ -359,4 +359,42 @@ class QuestionsController extends Controller
             ],
         ], 200);
     }
+
+    /**
+     * Toggle the is_active status of a question
+     * Admin only when authentication is enabled
+     */
+    public function toggleActive(Request $request, string $id)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $question = Question::find($id);
+
+        if (!$question) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Question not found'
+            ], 404);
+        }
+
+        // Toggle is_active
+        $question->is_active = !$question->is_active;
+        $question->save();
+        $question->load('construct');
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Question active status toggled successfully',
+            'data' => $question
+        ], 200);
+    }
 }

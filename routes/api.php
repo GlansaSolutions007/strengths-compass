@@ -47,6 +47,7 @@ Route::post('age-groups', [AgeGroupController::class, 'store']);
 Route::get('age-groups/{id}', [AgeGroupController::class, 'show']);
 Route::put('age-groups/{id}', [AgeGroupController::class, 'update']);
 Route::delete('age-groups/{id}', [AgeGroupController::class, 'destroy']);
+Route::patch('age-groups/{id}/toggle-active', [AgeGroupController::class, 'toggleActive']);
 
 // Cluster CRUD (public for now)
 Route::get('clusters', [ClusterController::class, 'index']);
@@ -54,6 +55,7 @@ Route::get('clusters/{id}', [ClusterController::class, 'show']);
 Route::post('clusters', [ClusterController::class, 'store']);
 Route::put('clusters/{id}', [ClusterController::class, 'update']);
 Route::delete('clusters/{id}', [ClusterController::class, 'destroy']);
+Route::patch('clusters/{id}/toggle-active', [ClusterController::class, 'toggleActive']);
 
 // Construct CRUD (public for now)
 Route::get('constructs', [ConstructController::class, 'index']);
@@ -61,6 +63,7 @@ Route::get('constructs/{id}', [ConstructController::class, 'show']);
 Route::post('constructs', [ConstructController::class, 'store']);
 Route::put('constructs/{id}', [ConstructController::class, 'update']);
 Route::delete('constructs/{id}', [ConstructController::class, 'destroy']);
+Route::patch('constructs/{id}/toggle-active', [ConstructController::class, 'toggleActive']);
 
 // Constructs by Cluster (alternative route)
 Route::get('clusters/{clusterId}/constructs', [ConstructController::class, 'getByCluster']);
@@ -71,6 +74,7 @@ Route::get('questions/{id}', [QuestionsController::class, 'show']);
 Route::post('questions', [QuestionsController::class, 'store']);
 Route::put('questions/{id}', [QuestionsController::class, 'update']);
 Route::delete('questions/{id}', [QuestionsController::class, 'destroy']);
+Route::patch('questions/{id}/toggle-active', [QuestionsController::class, 'toggleActive']);
 
 // Questions by Construct
 Route::get('constructs/{constructId}/questions', [QuestionsController::class, 'byConstruct']);

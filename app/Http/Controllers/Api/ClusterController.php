@@ -131,4 +131,38 @@ class ClusterController extends Controller
             'message' => 'Cluster deleted successfully'
         ]);
     }
+
+    // ✅ Toggle Active Status
+    public function toggleActive(Request $request, $id)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $cluster = Cluster::find($id);
+
+        if (!$cluster) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Cluster not found'
+            ], 404);
+        }
+
+        // Toggle is_active
+        $cluster->is_active = !$cluster->is_active;
+        $cluster->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Cluster active status toggled successfully',
+            'data' => $cluster
+        ], 200);
+    }
 }

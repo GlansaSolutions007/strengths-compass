@@ -145,4 +145,41 @@ class AgeGroupController extends Controller
             'message' => 'Age group deleted successfully'
         ], 200);
     }
+
+    /**
+     * Toggle the is_active status of an age group
+     * Admin only when authentication is enabled
+     */
+    public function toggleActive(Request $request, string $id)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $ageGroup = AgeGroup::find($id);
+
+        if (!$ageGroup) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Age group not found'
+            ], 404);
+        }
+
+        // Toggle is_active
+        $ageGroup->is_active = !$ageGroup->is_active;
+        $ageGroup->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Age group active status toggled successfully',
+            'data' => $ageGroup
+        ], 200);
+    }
 }

@@ -203,5 +203,39 @@ class ConstructController extends Controller
             'message' => 'Construct deleted successfully'
         ], 200);
     }
+
+    // ✅ Toggle Active Status
+    public function toggleActive(Request $request, $id)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $construct = Construct::find($id);
+
+        if (!$construct) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Construct not found'
+            ], 404);
+        }
+
+        // Toggle is_active
+        $construct->is_active = !$construct->is_active;
+        $construct->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Construct active status toggled successfully',
+            'data' => $construct
+        ], 200);
+    }
 }
 
