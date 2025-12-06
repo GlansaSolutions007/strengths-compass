@@ -766,42 +766,72 @@ private function calculateClusterScores($userAnswers, $test)
      */
     public function downloadTestResultsExcel(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'from_date' => 'nullable|date',
-            'to_date' => 'nullable|date',
-        ]);
+        try {
+            $validator = Validator::make($request->all(), [
+                'from_date' => 'nullable|date',
+                'to_date' => 'nullable|date',
+            ]);
 
-        if ($validator->fails()) {
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $fromDate = $request->input('from_date');
+            $toDate = $request->input('to_date');
+
+            // Get age group from session
+            $ageGroupId = session('selected_age_group_id');
+
+            $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
+            $formattedResults = $this->transformTestResults($testResults);
+
+            $filteredResults = $formattedResults->filter(function ($result) {
+                return strtolower($result['user']['role'] ?? '') === 'user';
+            })->values();
+
+            // Check if there's any data to export
+            if ($filteredResults->isEmpty()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No test results found to export',
+                ], 404);
+            }
+
+            $fileName = 'user-test-results-' . now()->format('Y-m-d_His') . '.xlsx';
+
+            $rawData = $this->buildExportDatasets($filteredResults)['raw'];
+
+            // Ensure raw data is not empty
+            if (empty($rawData)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No data available to export',
+                ], 404);
+            }
+
+            return Excel::download(
+                new UserTestDataExport(
+                    $rawData,
+                    [], // Empty cluster data - not needed
+                    []  // Empty construct data - not needed
+                ),
+                $fileName
+            );
+        } catch (\Exception $e) {
+            \Log::error('Excel export failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'status' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
+                'message' => 'Failed to generate Excel file: ' . $e->getMessage(),
+            ], 500);
         }
-
-        $fromDate = $request->input('from_date');
-        $toDate = $request->input('to_date');
-
-        // Get age group from session
-        $ageGroupId = session('selected_age_group_id');
-
-        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
-        $formattedResults = $this->transformTestResults($testResults);
-
-        $filteredResults = $formattedResults->filter(function ($result) {
-            return strtolower($result['user']['role'] ?? '') === 'user';
-        })->values();
-
-        $fileName = 'user-test-results-' . now()->format('Y-m-d_His') . '.xlsx';
-
-        return Excel::download(
-            new UserTestDataExport(
-                $this->buildExportDatasets($filteredResults)['raw'],
-                [], // Empty cluster data - not needed
-                []  // Empty construct data - not needed
-            ),
-            $fileName
-        );
     }
 
     /**
