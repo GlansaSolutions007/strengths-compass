@@ -20,20 +20,9 @@ class ConstructController extends Controller
             $query->where('cluster_id', $request->cluster_id);
         }
 
-        // Get age_group_id from request or session
-        $ageGroupId = $request->input('age_group_id');
-        
-        // If provided in request, store it in session
-        if ($ageGroupId !== null) {
-            session(['selected_age_group_id' => $ageGroupId]);
-        } else {
-            // Otherwise, get from session
-            $ageGroupId = session('selected_age_group_id');
-        }
-
-        // Filter by age_group_id if available
-        if ($ageGroupId !== null) {
-            $query->where('age_group_id', $ageGroupId);
+        // Filter by age_group_id if provided in request
+        if ($request->has('age_group_id')) {
+            $query->where('age_group_id', $request->age_group_id);
         }
 
         $constructs = $query->orderBy('display_order')->get();

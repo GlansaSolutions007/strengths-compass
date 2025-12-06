@@ -23,20 +23,9 @@ class QuestionsController extends Controller
             $query->where('construct_id', $request->construct_id);
         }
 
-        // Get age_group_id from request or session
-        $ageGroupId = $request->input('age_group_id');
-        
-        // If provided in request, store it in session
-        if ($ageGroupId !== null) {
-            session(['selected_age_group_id' => $ageGroupId]);
-        } else {
-            // Otherwise, get from session
-            $ageGroupId = session('selected_age_group_id');
-        }
-
-        // Filter by age_group_id if available
-        if ($ageGroupId !== null) {
-            $query->where('age_group_id', $ageGroupId);
+        // Filter by age_group_id if provided in request
+        if ($request->has('age_group_id')) {
+            $query->where('age_group_id', $request->age_group_id);
         }
 
         if ($request->has('category')) {
@@ -77,6 +66,7 @@ class QuestionsController extends Controller
             ], 422);
         }
 
+        // Prepare data for creation - age_group_id will be included if provided
         $question = Question::create($request->only([
             'construct_id', 'question_text', 'age_group_id', 'category', 'order_no', 'is_active'
         ]));
@@ -141,6 +131,7 @@ class QuestionsController extends Controller
             ], 422);
         }
 
+        // Update with all provided fields including age_group_id
         $question->update($request->only([
             'construct_id', 'question_text', 'age_group_id', 'category', 'order_no', 'is_active'
         ]));
@@ -226,15 +217,9 @@ class QuestionsController extends Controller
         try {
             $file = $request->file('file');
 
-            // Get construct_id from request or use null
+            // Get construct_id and age_group_id from request
             $constructId = $request->input('construct_id');
-
-            // Get age_group_id from request, session, or use null
             $ageGroupId = $request->input('age_group_id');
-            if (!$ageGroupId) {
-                // Fallback to session if not provided in request
-                $ageGroupId = session('selected_age_group_id');
-            }
 
             // Create import instance with construct_id and age_group_id (if provided)
             // These will be used as fallback if not present in Excel file
@@ -298,6 +283,7 @@ class QuestionsController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'construct_id' => 'required|exists:constructs,id',
+            'age_group_id' => 'nullable|exists:age_groups,id',
         ]);
 
         if ($validator->fails()) {
@@ -328,6 +314,12 @@ class QuestionsController extends Controller
         }
 
         $question->construct_id = $constructId;
+        
+        // Update age_group_id if provided in request
+        if ($request->has('age_group_id')) {
+            $question->age_group_id = $request->input('age_group_id');
+        }
+        
         $question->save();
         $question->load('construct');
 
