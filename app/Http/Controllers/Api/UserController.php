@@ -39,7 +39,24 @@ class UserController extends Controller
             $perPage = 100;
         }
 
-        $users = User::orderByDesc('id')->paginate($perPage);
+        // Build query with filters
+        $query = User::query();
+
+        // Filter by age_group_id if provided
+        $ageGroupId = $request->input('age_group_id');
+        if ($ageGroupId !== null) {
+            $query->where('age_group_id', $ageGroupId);
+        }
+
+        // Filter by role if provided
+        if ($request->has('role')) {
+            $query->where('role', $request->role);
+        }
+
+        // Load age group relationship
+        $query->with('ageGroup');
+
+        $users = $query->orderByDesc('id')->paginate($perPage);
 
         return response()->json([
             'users' => $users,
