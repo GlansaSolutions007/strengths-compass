@@ -41,6 +41,91 @@ class TestController extends Controller
     /**
      * Store a newly created resource in storage.
      */
+    // public function store(Request $request)
+    // {
+    //     // Debug: Log the request method and data
+    //     \Log::info('Test Store Method Called', [
+    //         'method' => $request->method(),
+    //         'url' => $request->fullUrl(),
+    //         'data' => $request->all()
+    //     ]);
+
+    //     $validator = Validator::make($request->all(), [
+    //         'title' => 'required|string|max:255',
+    //         'description' => 'nullable|string',
+    //         'age_group_id' => 'nullable|exists:age_groups,id',
+    //         'is_active' => 'sometimes|boolean',
+    //         'cluster_ids' => 'sometimes|array',
+    //         'cluster_ids.*' => 'exists:clusters,id',
+    //         'clusters' => 'sometimes|array',
+    //         'clusters.*.cluster_id' => 'required|exists:clusters,id',
+    //         'clusters.*.p_count' => 'nullable|integer|min:0',
+    //         'clusters.*.r_count' => 'nullable|integer|min:0',
+    //         'clusters.*.sdb_count' => 'nullable|integer|min:0',
+    //     ]);
+
+    //     if ($validator->fails()) {
+    //         return response()->json([
+    //             'status' => false,
+    //             'errors' => $validator->errors(),
+    //             'message' => 'Validation failed'
+    //         ], 422);
+    //     }
+
+    //     try {
+    //         $test = Test::create($request->only(['title', 'description', 'age_group_id', 'is_active']));
+
+    //         // Handle cluster_ids (simple array format - backward compatibility)
+    //         if ($request->has('cluster_ids') && is_array($request->cluster_ids)) {
+    //             foreach ($request->cluster_ids as $clusterId) {
+    //                 $test->clusters()->attach($clusterId, [
+    //                     'p_count' => null,
+    //                     'r_count' => null,
+    //                     'sdb_count' => null,
+    //                 ]);
+    //             }
+    //         }
+
+    //         // Handle clusters (nested format with category counts)
+    //         if ($request->has('clusters')) {
+    //             foreach ($request->clusters as $clusterData) {
+    //                 $test->clusters()->attach($clusterData['cluster_id'], [
+    //                     'p_count' => $clusterData['p_count'] ?? null,
+    //                     'r_count' => $clusterData['r_count'] ?? null,
+    //                     'sdb_count' => $clusterData['sdb_count'] ?? null,
+    //                 ]);
+    //             }
+    //         }
+
+    //         $test->load('clusters');
+
+    //         // Auto-generate questions if clusters are attached
+    //         if ($test->clusters->count() > 0) {
+    //             $this->generateQuestionSelectionInternal($test);
+    //         }
+
+    //         // Reload test with questions to include in response
+    //         $test->load('selectedQuestions');
+
+    //         return response()->json([
+    //             'status' => true,
+    //             'message' => 'Test created successfully',
+    //             'data' => $test,
+    //             'selected_questions_count' => $test->selectedQuestions->count()
+    //         ], 201);
+    //     } catch (\Exception $e) {
+    //         \Log::error('Test Creation Error', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+
+    //         return response()->json([
+    //             'status' => false,
+    //             'message' => 'Error creating test: ' . $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
+
     public function store(Request $request)
     {
         // Debug: Log the request method and data
@@ -57,6 +142,8 @@ class TestController extends Controller
             'is_active' => 'sometimes|boolean',
             'cluster_ids' => 'sometimes|array',
             'cluster_ids.*' => 'exists:clusters,id',
+            'question_ids' => 'sometimes|array',
+            'question_ids.*' => 'exists:questions,id',
             'clusters' => 'sometimes|array',
             'clusters.*.cluster_id' => 'required|exists:clusters,id',
             'clusters.*.p_count' => 'nullable|integer|min:0',
@@ -99,9 +186,14 @@ class TestController extends Controller
 
             $test->load('clusters');
 
-            // Auto-generate questions if clusters are attached
-            if ($test->clusters->count() > 0) {
-                $this->generateQuestionSelectionInternal($test);
+            // Handle question_ids if provided (manual selection from frontend)
+            if ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
+                $this->attachSelectedQuestions($test, $request->question_ids);
+            } else {
+                // Auto-generate questions if clusters are attached and no question_ids provided
+                if ($test->clusters->count() > 0) {
+                    $this->generateQuestionSelectionInternal($test);
+                }
             }
 
             // Reload test with questions to include in response
@@ -173,6 +265,8 @@ class TestController extends Controller
             'description' => 'nullable|string',
             'age_group_id' => 'nullable|exists:age_groups,id',
             'is_active' => 'sometimes|boolean',
+            'question_ids' => 'sometimes|array',
+            'question_ids.*' => 'exists:questions,id',
             'clusters' => 'sometimes|array',
             'clusters.*.cluster_id' => 'required|exists:clusters,id',
             'clusters.*.p_count' => 'nullable|integer|min:0',
@@ -205,10 +299,18 @@ class TestController extends Controller
 
         $test->load('clusters');
 
+        // Handle question_ids if provided (manual selection from frontend)
+        if ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
+            $this->attachSelectedQuestions($test, $request->question_ids);
+        }
+
+        $test->load('selectedQuestions');
+
         return response()->json([
             'status' => true,
             'message' => 'Test updated successfully',
-            'data' => $test
+            'data' => $test,
+            'selected_questions_count' => $test->selectedQuestions->count()
         ], 200);
     }
 
@@ -609,5 +711,65 @@ class TestController extends Controller
     public function regenerateQuestionSelection(string $id)
     {
         return $this->generateQuestionSelection($id);
+    }
+
+    private function attachSelectedQuestions(Test $test, array $questionIds)
+    {
+        // Clear existing question selections
+        DB::table('test_question')->where('test_id', $test->id)->delete();
+
+        if (empty($questionIds)) {
+            return;
+        }
+
+        // Get questions with their construct and cluster information
+        $questions = Question::whereIn('id', $questionIds)
+            ->with('construct.cluster')
+            ->get();
+
+        // Prepare data for insertion
+        $testQuestions = [];
+        $orderNo = 1;
+
+        foreach ($questionIds as $questionId) {
+            $question = $questions->firstWhere('id', $questionId);
+            
+            if (!$question) {
+                continue;
+            }
+
+            // Get cluster_id from question's construct
+            $clusterId = null;
+            if ($question->construct && $question->construct->cluster) {
+                $clusterId = $question->construct->cluster->id;
+            } else {
+                // Fallback: try to find cluster from test's clusters
+                $test->load('clusters');
+                if ($test->clusters->count() > 0) {
+                    // Find cluster that contains this question's construct
+                    foreach ($test->clusters as $cluster) {
+                        $cluster->load('constructs');
+                        if ($cluster->constructs->contains('id', $question->construct_id)) {
+                            $clusterId = $cluster->id;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $testQuestions[] = [
+                'test_id' => $test->id,
+                'question_id' => $questionId,
+                'cluster_id' => $clusterId,
+                'order_no' => $orderNo++,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        // Insert in batches for better performance
+        if (!empty($testQuestions)) {
+            DB::table('test_question')->insert($testQuestions);
+        }
     }
 }
