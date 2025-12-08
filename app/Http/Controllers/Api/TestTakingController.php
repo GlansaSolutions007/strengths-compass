@@ -768,6 +768,7 @@ private function calculateClusterScores($userAnswers, $test)
             $validator = Validator::make($request->all(), [
                 'from_date' => 'nullable|date',
                 'to_date' => 'nullable|date',
+                'age_group_id' => 'required|exists:age_groups,id',
             ]);
 
             if ($validator->fails()) {
@@ -780,9 +781,7 @@ private function calculateClusterScores($userAnswers, $test)
 
             $fromDate = $request->input('from_date');
             $toDate = $request->input('to_date');
-
-            // Get age group from session
-            $ageGroupId = session('selected_age_group_id');
+            $ageGroupId = $request->input('age_group_id');
 
             $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
             $formattedResults = $this->transformTestResults($testResults);
@@ -801,10 +800,24 @@ private function calculateClusterScores($userAnswers, $test)
 
             $fileName = 'user-test-results-' . now()->format('Y-m-d_His') . '.xlsx';
 
-            $rawData = $this->buildExportDatasets($filteredResults)['raw'];
+            // Group results by test_id
+            $groupedByTest = $filteredResults->groupBy(function ($result) {
+                return $result['test']['id'] ?? 'unknown';
+            });
 
-            // Ensure raw data is not empty
-            if (empty($rawData)) {
+            // Build datasets for each test
+            $testDatasets = [];
+            foreach ($groupedByTest as $testId => $testResults) {
+                $testTitle = $testResults->first()['test']['title'] ?? "Test {$testId}";
+                $testDatasets[] = [
+                    'test_id' => $testId,
+                    'test_title' => $testTitle,
+                    'raw_data' => $this->buildExportDatasets($testResults)['raw'],
+                ];
+            }
+
+            // Ensure we have data to export
+            if (empty($testDatasets) || empty(array_filter(array_column($testDatasets, 'raw_data')))) {
                 return response()->json([
                     'status' => false,
                     'message' => 'No data available to export',
@@ -812,11 +825,7 @@ private function calculateClusterScores($userAnswers, $test)
             }
 
             return Excel::download(
-                new UserTestDataExport(
-                    $rawData,
-                    [], // Empty cluster data - not needed
-                    []  // Empty construct data - not needed
-                ),
+                new UserTestDataExport($testDatasets),
                 $fileName
             );
         } catch (\Exception $e) {

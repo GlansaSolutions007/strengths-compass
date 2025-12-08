@@ -10,9 +10,12 @@ class RawTestDataSheet implements FromArray, WithTitle, ShouldAutoSize
 {
     /**
      * @param  array<int, array<string, mixed>>  $rows
+     * @param  string|null  $sheetTitle
      */
-    public function __construct(protected array $rows)
-    {
+    public function __construct(
+        protected array $rows,
+        protected ?string $sheetTitle = null
+    ) {
     }
 
     public function array(): array
@@ -22,7 +25,7 @@ class RawTestDataSheet implements FromArray, WithTitle, ShouldAutoSize
 
     public function title(): string
     {
-        return 'Raw Data';
+        return $this->sheetTitle ?? 'Raw Data';
     }
 }
 
