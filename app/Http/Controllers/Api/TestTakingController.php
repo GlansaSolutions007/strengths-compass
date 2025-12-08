@@ -740,9 +740,7 @@ private function calculateClusterScores($userAnswers, $test)
 
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
-
-        // Get age group from session
-        $ageGroupId = session('selected_age_group_id');
+        $ageGroupId = $request->input('age_group_id');
 
         $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
         $formattedResults = $this->transformTestResults($testResults);
