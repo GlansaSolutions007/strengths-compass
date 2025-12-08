@@ -728,7 +728,6 @@ private function calculateClusterScores($userAnswers, $test)
         $validator = Validator::make($request->all(), [
             'from_date' => 'nullable|date',
             'to_date' => 'nullable|date',
-            'age_group_id' => 'nullable|exists:age_groups,id',
         ]);
 
         if ($validator->fails()) {
@@ -742,8 +741,8 @@ private function calculateClusterScores($userAnswers, $test)
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
 
-        // Get age group from request
-        $ageGroupId = $request->input('age_group_id');
+        // Get age group from session
+        $ageGroupId = session('selected_age_group_id');
 
         $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
         $formattedResults = $this->transformTestResults($testResults);
@@ -771,7 +770,6 @@ private function calculateClusterScores($userAnswers, $test)
             $validator = Validator::make($request->all(), [
                 'from_date' => 'nullable|date',
                 'to_date' => 'nullable|date',
-                'age_group_id' => 'nullable|exists:age_groups,id',
             ]);
 
             if ($validator->fails()) {
@@ -785,8 +783,8 @@ private function calculateClusterScores($userAnswers, $test)
             $fromDate = $request->input('from_date');
             $toDate = $request->input('to_date');
 
-            // Get age group from request
-            $ageGroupId = $request->input('age_group_id');
+            // Get age group from session
+            $ageGroupId = session('selected_age_group_id');
 
             $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
             $formattedResults = $this->transformTestResults($testResults);
