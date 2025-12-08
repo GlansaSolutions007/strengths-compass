@@ -49,11 +49,44 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
     public function model(array $row)
     {
         // Construct ID is now optional - questions can be uploaded without assignment
-        // If construct_id is provided (from parameter or Excel), validate it exists
-        $constructId = $this->constructId ?? $row['construct_id'] ?? null;
+        // Priority: constructor parameter > Excel construct_id > Excel construct_name
+        $constructId = $this->constructId ?? null;
 
-        if ($constructId) {
-            // Validate construct exists if provided
+        // If not set from constructor, check Excel row
+        if ($constructId === null) {
+            if (isset($row['construct_id']) && !empty($row['construct_id'])) {
+                // Validate construct_id exists
+                $constructIdValue = is_numeric($row['construct_id']) ? (int)$row['construct_id'] : null;
+                if ($constructIdValue) {
+                    $construct = \App\Models\Construct::find($constructIdValue);
+                    if ($construct) {
+                        $constructId = $constructIdValue;
+                    } else {
+                        $this->failureCount++;
+                        $this->errors[] = [
+                            'row' => $row,
+                            'error' => "Construct ID {$constructIdValue} does not exist"
+                        ];
+                        return null;
+                    }
+                }
+            } elseif (isset($row['construct_name']) && !empty($row['construct_name'])) {
+                // Try to find construct by name (case-insensitive)
+                $constructName = trim($row['construct_name']);
+                $construct = \App\Models\Construct::where('name', 'like', $constructName)->first();
+                if ($construct) {
+                    $constructId = $construct->id;
+                } else {
+                    $this->failureCount++;
+                    $this->errors[] = [
+                        'row' => $row,
+                        'error' => "Construct '{$constructName}' not found"
+                    ];
+                    return null;
+                }
+            }
+        } else {
+            // Validate construct exists if provided from constructor
             if (!\App\Models\Construct::find($constructId)) {
                 $this->failureCount++;
                 $this->errors[] = [
@@ -146,6 +179,10 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
             // order_no / order are optional, but must be integers if provided
             'order_no' => 'sometimes|nullable|integer',
             'order' => 'sometimes|nullable|integer', // Alternative column name
+
+            // construct_id and construct_name are optional (will be validated in model() method)
+            'construct_id' => 'sometimes|nullable|integer|exists:constructs,id',
+            'construct_name' => 'sometimes|nullable|string', // Will be validated in model() method
 
             // age_group_id and age_group are optional
             'age_group_id' => 'sometimes|nullable|integer|exists:age_groups,id',

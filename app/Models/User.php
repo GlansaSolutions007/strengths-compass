@@ -27,6 +27,7 @@ class User extends Authenticatable
         'role',
         'gender',
         'age',
+        'age_group_id',
         'contact',
         'whatsapp_number',
         'contact_number',
@@ -61,5 +62,13 @@ class User extends Authenticatable
             'gender' => 'string',
             'age' => 'integer',
         ];
+    }
+
+    /**
+     * Get the age group that belongs to the user
+     */
+    public function ageGroup()
+    {
+        return $this->belongsTo(AgeGroup::class);
     }
 }

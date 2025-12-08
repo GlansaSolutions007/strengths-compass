@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\AgeGroup;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
@@ -208,6 +209,17 @@ class UserController extends Controller
                 $lastName = $request->input('last_name', $user->last_name);
                 $updatable['name'] = trim($firstName . ' ' . $lastName);
             }
+
+            // Automatically update age_group_id if age is being updated
+            if ($request->has('age') && $request->age) {
+                $ageGroupId = $this->getAgeGroupIdByAge($request->age);
+                if ($ageGroupId) {
+                    $updatable['age_group_id'] = $ageGroupId;
+                } else {
+                    // If no age group found, set to null
+                    $updatable['age_group_id'] = null;
+                }
+            }
         }
 
         // Handle password update
@@ -358,6 +370,19 @@ class UserController extends Controller
             'status' => 200,
             'message' => 'Password changed successfully',
         ], 200);
+    }
+
+    /**
+     * Helper method to find age group ID based on user's age
+     */
+    private function getAgeGroupIdByAge($age)
+    {
+        $ageGroup = AgeGroup::where('from', '<=', $age)
+            ->where('to', '>=', $age)
+            ->where('is_active', true)
+            ->first();
+
+        return $ageGroup ? $ageGroup->id : null;
     }
 }
 

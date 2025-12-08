@@ -87,6 +87,14 @@ class AuthController extends Controller
             $userData['age'] = $request->age;
             $userData['educational_qualification'] = $request->educational_qualification;
             
+            // Automatically assign age_group_id based on age
+            if ($request->age) {
+                $ageGroupId = $this->getAgeGroupIdByAge($request->age);
+                if ($ageGroupId) {
+                    $userData['age_group_id'] = $ageGroupId;
+                }
+            }
+            
             // Set name as combination of first_name and last_name for backward compatibility
             $userData['name'] = trim($request->first_name . ' ' . $request->last_name);
         }
