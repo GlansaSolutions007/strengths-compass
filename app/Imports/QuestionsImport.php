@@ -71,9 +71,16 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
                     }
                 }
             } elseif (isset($row['construct_name']) && !empty($row['construct_name'])) {
-                // Try to find construct by name (case-insensitive)
+                // Try to find construct by name (flexible matching: case-insensitive, ignores special characters)
                 $constructName = trim($row['construct_name']);
-                $construct = \App\Models\Construct::where('name', 'like', $constructName)->first();
+                $normalizedInput = $this->normalizeNameForComparison($constructName);
+                
+                // Get all constructs and find by normalized name
+                $constructs = \App\Models\Construct::all();
+                $construct = $constructs->first(function ($c) use ($normalizedInput) {
+                    return $this->normalizeNameForComparison($c->name) === $normalizedInput;
+                });
+                
                 if ($construct) {
                     $constructId = $construct->id;
                 } else {
@@ -139,9 +146,16 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
                     }
                 }
             } elseif (isset($row['age_group']) && !empty($row['age_group'])) {
-                // Try to find age group by name (case-insensitive)
+                // Try to find age group by name (flexible matching: case-insensitive, ignores special characters)
                 $ageGroupName = trim($row['age_group']);
-                $ageGroup = \App\Models\AgeGroup::where('name', 'like', $ageGroupName)->first();
+                $normalizedInput = $this->normalizeNameForComparison($ageGroupName);
+                
+                // Get all age groups and find by normalized name
+                $ageGroups = \App\Models\AgeGroup::all();
+                $ageGroup = $ageGroups->first(function ($ag) use ($normalizedInput) {
+                    return $this->normalizeNameForComparison($ag->name) === $normalizedInput;
+                });
+                
                 if ($ageGroup) {
                     $ageGroupId = $ageGroup->id;
                 } else {
@@ -216,6 +230,29 @@ class QuestionsImport implements ToModel, WithHeadingRow, WithValidation, SkipsO
             'failures' => $this->failureCount,
             'errors' => $this->errors,
         ];
+    }
+
+    /**
+     * Normalize name for flexible comparison
+     * - Converts to lowercase
+     * - Removes special characters (hyphens, spaces, underscores, etc.)
+     * - Removes extra whitespace
+     * 
+     * Examples:
+     * - "Self-Awareness" -> "selfawareness"
+     * - "ALTRUISM" -> "altruism"
+     * - "Altruism" -> "altruism"
+     * - "Self Awareness" -> "selfawareness"
+     */
+    private function normalizeNameForComparison(string $name): string
+    {
+        // Convert to lowercase
+        $normalized = strtolower(trim($name));
+        
+        // Remove special characters: hyphens, spaces, underscores, dots, etc.
+        $normalized = preg_replace('/[^a-z0-9]/', '', $normalized);
+        
+        return $normalized;
     }
 }
 
