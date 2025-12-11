@@ -1067,7 +1067,8 @@ private function calculateClusterScores($userAnswers, $test)
         $userColumnCount   = count($userHeaders);
         $clusterCount      = count($clusterNames);
         $constructCount    = count($constructNames);
-        $summaryColsCount  = $clusterCount + $constructCount;
+        $sdbColumnCount    = 3; // SDB Raw, SDB Percentage, SDB Band
+        $summaryColsCount  = $clusterCount + $constructCount + $sdbColumnCount;
         $rows = [];
 
         $clusterHeader = array_merge(
@@ -1102,18 +1103,22 @@ private function calculateClusterScores($userAnswers, $test)
             }
         }
 
-        // 1) Cluster row over question columns, then "Clusters"/"Constructs" headings at the far right
+        $sdbSummaryHeading = ['SDB', null, null]; // SDB Raw, SDB Percentage, SDB Band
+
+        // 1) Cluster row over question columns, then "Clusters"/"Constructs"/"SDB" headings at the far right
         $rows[] = array_merge(
             $clusterHeader,
             $clusterSummaryHeading,
-            $constructSummaryHeading
+            $constructSummaryHeading,
+            $sdbSummaryHeading
         );
 
-        // 2) Construct row over question columns, then each cluster/construct name as column labels
+        // 2) Construct row over question columns, then each cluster/construct name as column labels, then SDB column labels
         $rows[] = array_merge(
             $constructHeader,
             $clusterNames,
-            $constructNames
+            $constructNames,
+            ['SDB Raw', 'SDB %', 'SDB Band']
         );
 
         // 3) Question labels row, with empty cells in the summary section
@@ -1150,6 +1155,14 @@ private function calculateClusterScores($userAnswers, $test)
                 $constructValues[] = $entry ? $this->extractPercentageScore($entry) : null;
             }
 
+            // Calculate SDB scores
+            $sdbScores = $this->calculateSDBScores($result['questions'] ?? []);
+            $sdbValues = [
+                $sdbScores['raw'],
+                $sdbScores['percentage'] !== null ? round($sdbScores['percentage'], 0) : null,
+                $sdbScores['band_name'],
+            ];
+
             // User + question text + empty summary cells
             $rows[] = array_merge(
                 $userRow,
@@ -1157,12 +1170,13 @@ private function calculateClusterScores($userAnswers, $test)
                 array_fill(0, $summaryColsCount, null)
             );
 
-            // Score row (only scores + summary percentages)
+            // Score row (only scores + summary percentages + SDB values)
             $rows[] = array_merge(
                 array_fill(0, $userColumnCount, null),
                 $scoreRow,
                 $clusterValues,
-                $constructValues
+                $constructValues,
+                $sdbValues
             );
 
             // Blank separator row
@@ -1417,6 +1431,97 @@ private function calculateClusterScores($userAnswers, $test)
             return 'Medium';
         } else {
             return 'High';
+        }
+    }
+
+    /**
+     * Calculate SDB (Social Desirability Bias) scores for a test result
+     * Returns: ['raw' => float, 'percentage' => float, 'band' => string, 'band_name' => string]
+     */
+    protected function calculateSDBScores(array $questions): array
+    {
+        // Filter SDB questions
+        $sdbQuestions = array_filter($questions, function ($question) {
+            return isset($question['category']) && strtoupper($question['category']) === 'SDB';
+        });
+
+        if (empty($sdbQuestions)) {
+            return [
+                'raw' => null,
+                'percentage' => null,
+                'band' => null,
+                'band_name' => null,
+            ];
+        }
+
+        // Sum all SDB answer values (not final_score, as SDB uses direct scoring)
+        $sdbSum = 0;
+        $sdbCount = 0;
+        
+        foreach ($sdbQuestions as $question) {
+            $answerValue = data_get($question, 'answer.answer_value');
+            if ($answerValue !== null && is_numeric($answerValue)) {
+                $sdbSum += (float) $answerValue;
+                $sdbCount++;
+            }
+        }
+
+        if ($sdbCount === 0) {
+            return [
+                'raw' => null,
+                'percentage' => null,
+                'band' => null,
+                'band_name' => null,
+            ];
+        }
+
+        // Calculate raw score (average)
+        $sdbRaw = $sdbSum / $sdbCount;
+        $sdbRaw = round($sdbRaw, 2);
+
+        // Calculate percentage: ((raw - 1) / 4) * 100
+        $sdbPercentage = $this->calculatePercentageFromMean($sdbRaw);
+
+        // Determine band based on raw score
+        $band = $this->determineSDBBand($sdbRaw, $sdbPercentage);
+
+        return [
+            'raw' => $sdbRaw,
+            'percentage' => $sdbPercentage,
+            'band' => $band['band'],
+            'band_name' => $band['name'],
+        ];
+    }
+
+    /**
+     * Determine SDB band based on raw score and percentage
+     * GREEN (Authentic): 1.0-3.8 (0-70%)
+     * AMBER (Managing): 3.81-4.4 (71-85%)
+     * RED (Idealized): 4.41-5.0 (86-100%)
+     */
+    private function determineSDBBand(float $rawScore, float $percentage): array
+    {
+        if ($rawScore >= 1.0 && $rawScore <= 3.8) {
+            return [
+                'band' => 'GREEN',
+                'name' => 'GREEN (Authentic)',
+            ];
+        } elseif ($rawScore >= 3.81 && $rawScore <= 4.4) {
+            return [
+                'band' => 'AMBER',
+                'name' => 'AMBER (Managing)',
+            ];
+        } elseif ($rawScore >= 4.41 && $rawScore <= 5.0) {
+            return [
+                'band' => 'RED',
+                'name' => 'RED (Idealized)',
+            ];
+        } else {
+            // Fallback for edge cases
+            return [
+                'band' => 'UNKNOWN',
+                'name' => 'UNKNOWN',
+            ];
         }
     }
 }
