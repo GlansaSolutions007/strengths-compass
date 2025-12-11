@@ -142,7 +142,14 @@ class TestTakingController extends Controller
                 $category = $scoringRule->category ?? $question->category;
                 $reverseScore = $scoringRule->reverse_score ?? false;
                 $weight = $scoringRule->weight ?? 1.0;
-                $includeInConstruct = $scoringRule->include_in_construct ?? true;
+                
+                // SDB questions are ALWAYS excluded from construct/cluster calculations
+                // Only P and R category questions are included
+                if (strtoupper($category) === 'SDB') {
+                    $includeInConstruct = false;
+                } else {
+                    $includeInConstruct = $scoringRule->include_in_construct ?? true;
+                }
 
                 // Calculate final score based on category
                 $finalScore = $this->calculateScore($answerValue, $category, $reverseScore, $weight);
@@ -326,8 +333,10 @@ private function calculateClusterScores($userAnswers, $test)
         $clusterCounts = [];
 
         foreach ($userAnswers as $answer) {
-            if (!$answer['include_in_construct']) {
-                continue; // Skip SDB questions that aren't included
+            // Skip SDB questions - they are excluded from cluster calculations
+            // Only P and R category questions are included
+            if (!$answer['include_in_construct'] || strtoupper($answer['category'] ?? '') === 'SDB') {
+                continue;
             }
 
             $question = QuestionsModel::with('construct.cluster')->find($answer['question_id']);
@@ -380,8 +389,10 @@ private function calculateClusterScores($userAnswers, $test)
         $constructNames = [];
 
         foreach ($userAnswers as $answer) {
-            if (!$answer['include_in_construct']) {
-                continue; // Skip SDB questions that aren't included
+            // Skip SDB questions - they are excluded from construct calculations
+            // Only P and R category questions are included
+            if (!$answer['include_in_construct'] || strtoupper($answer['category'] ?? '') === 'SDB') {
+                continue;
             }
 
             $question = QuestionsModel::with('construct')->find($answer['question_id']);
@@ -1156,12 +1167,26 @@ private function calculateClusterScores($userAnswers, $test)
             }
 
             // Calculate SDB scores
-            $sdbScores = $this->calculateSDBScores($result['questions'] ?? []);
-            $sdbValues = [
-                $sdbScores['raw'],
-                $sdbScores['percentage'] !== null ? round($sdbScores['percentage'], 0) : null,
-                $sdbScores['band_name'],
-            ];
+            try {
+                $questions = $result['questions'] ?? [];
+                // Convert Collection to array if needed
+                if ($questions instanceof Collection) {
+                    $questions = $questions->toArray();
+                }
+                $sdbScores = $this->calculateSDBScores($questions);
+                $sdbValues = [
+                    $sdbScores['raw'],
+                    $sdbScores['percentage'] !== null ? round($sdbScores['percentage'], 0) : null,
+                    $sdbScores['band_name'],
+                ];
+            } catch (\Exception $e) {
+                // If SDB calculation fails, use null values
+                \Log::error('SDB calculation error', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                $sdbValues = [null, null, null];
+            }
 
             // User + question text + empty summary cells
             $rows[] = array_merge(
@@ -1438,12 +1463,30 @@ private function calculateClusterScores($userAnswers, $test)
      * Calculate SDB (Social Desirability Bias) scores for a test result
      * Returns: ['raw' => float, 'percentage' => float, 'band' => string, 'band_name' => string]
      */
-    protected function calculateSDBScores(array $questions): array
+    protected function calculateSDBScores($questions): array
     {
+        // Convert Collection to array if needed
+        if ($questions instanceof Collection) {
+            $questions = $questions->toArray();
+        }
+        
+        // Ensure it's an array
+        if (!is_array($questions)) {
+            return [
+                'raw' => null,
+                'percentage' => null,
+                'band' => null,
+                'band_name' => null,
+            ];
+        }
+
         // Filter SDB questions
         $sdbQuestions = array_filter($questions, function ($question) {
             return isset($question['category']) && strtoupper($question['category']) === 'SDB';
         });
+        
+        // Reset array keys to ensure sequential indexing
+        $sdbQuestions = array_values($sdbQuestions);
 
         if (empty($sdbQuestions)) {
             return [
@@ -1487,9 +1530,9 @@ private function calculateClusterScores($userAnswers, $test)
 
         return [
             'raw' => $sdbRaw,
-            'percentage' => $sdbPercentage,
-            'band' => $band['band'],
-            'band_name' => $band['name'],
+            'percentage' => $sdbPercentage, // Already rounded in calculatePercentageFromMean
+            'band' => is_array($band) ? ($band['band'] ?? null) : null,
+            'band_name' => is_array($band) ? ($band['name'] ?? null) : null,
         ];
     }
 
@@ -1499,8 +1542,18 @@ private function calculateClusterScores($userAnswers, $test)
      * AMBER (Managing): 3.81-4.4 (71-85%)
      * RED (Idealized): 4.41-5.0 (86-100%)
      */
-    private function determineSDBBand(float $rawScore, float $percentage): array
+    private function determineSDBBand($rawScore, $percentage): array
     {
+        // Handle null or invalid values
+        if ($rawScore === null || !is_numeric($rawScore)) {
+            return [
+                'band' => null,
+                'name' => null,
+            ];
+        }
+
+        $rawScore = (float) $rawScore;
+
         if ($rawScore >= 1.0 && $rawScore <= 3.8) {
             return [
                 'band' => 'GREEN',
