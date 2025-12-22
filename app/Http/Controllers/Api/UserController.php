@@ -517,6 +517,14 @@ class UserController extends Controller
             $failureCount = $import->getFailureCount();
             $errors = $import->getErrors();
 
+            // Log import results for debugging
+            \Log::info('School users import completed', [
+                'school_id' => $schoolId,
+                'success_count' => $successCount,
+                'failure_count' => $failureCount,
+                'errors' => $errors,
+            ]);
+
             return response()->json([
                 'data' => [
                     'success_count' => $successCount,
@@ -527,6 +535,12 @@ class UserController extends Controller
                 'message' => "Import completed. {$successCount} users imported successfully" . ($failureCount > 0 ? ", {$failureCount} failed" : ""),
             ], 200);
         } catch (\Exception $e) {
+            \Log::error('School users import failed', [
+                'school_id' => $schoolId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'data' => [],
                 'status' => 500,

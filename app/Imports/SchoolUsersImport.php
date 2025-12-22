@@ -47,28 +47,56 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
      */
     public function model(array $row)
     {
-        // Required fields
-        $firstName = trim($row['first_name'] ?? '');
-        $lastName = trim($row['last_name'] ?? '');
+        // Debug: Log the row being processed
+        \Log::debug('Processing school user row', [
+            'row' => $row,
+            'row_keys' => array_keys($row),
+            'school_id' => $this->schoolId
+        ]);
+
+        // Required fields - check with case-insensitive keys
+        $firstName = '';
+        $lastName = '';
+        
+        // Try to find first_name and last_name with case-insensitive matching
+        foreach ($row as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if ($lowerKey === 'first_name' || $lowerKey === 'firstname') {
+                $firstName = trim($value ?? '');
+            }
+            if ($lowerKey === 'last_name' || $lowerKey === 'lastname') {
+                $lastName = trim($value ?? '');
+            }
+        }
         
         if (empty($firstName) || empty($lastName)) {
             $this->failureCount++;
             $this->errors[] = [
                 'row' => $row,
-                'error' => 'First name and last name are required'
+                'error' => 'First name and last name are required. Found keys: ' . implode(', ', array_keys($row))
             ];
             return null;
         }
 
-        // Class and Registration No are required for school users
-        $class = trim($row['class'] ?? '');
-        $registrationNo = trim($row['registration_no'] ?? '');
+        // Class and Registration No are required for school users - case-insensitive matching
+        $class = '';
+        $registrationNo = '';
+        
+        foreach ($row as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if ($lowerKey === 'class') {
+                $class = trim($value ?? '');
+            }
+            if ($lowerKey === 'registration_no' || $lowerKey === 'registrationno' || $lowerKey === 'reg_no') {
+                $registrationNo = trim($value ?? '');
+            }
+        }
         
         if (empty($class) || empty($registrationNo)) {
             $this->failureCount++;
             $this->errors[] = [
                 'row' => $row,
-                'error' => 'Class and Registration No are required for school users'
+                'error' => 'Class and Registration No are required for school users. Found: class=' . ($class ?: 'empty') . ', registration_no=' . ($registrationNo ?: 'empty')
             ];
             return null;
         }
@@ -105,8 +133,16 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             return null;
         }
 
-        // Password is required from Excel
-        $password = trim($row['password'] ?? '');
+        // Password is required from Excel - case-insensitive matching
+        $password = '';
+        foreach ($row as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if ($lowerKey === 'password') {
+                $password = trim($value ?? '');
+                break;
+            }
+        }
+        
         if (empty($password)) {
             $this->failureCount++;
             $this->errors[] = [
@@ -119,13 +155,21 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
         // Email is optional for school users (use username as email)
         $email = $username;
 
-        // Age is required for school users
-        $age = isset($row['age']) ? (int) $row['age'] : null;
+        // Age is required for school users - case-insensitive matching
+        $age = null;
+        foreach ($row as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if ($lowerKey === 'age') {
+                $age = isset($value) ? (int) $value : null;
+                break;
+            }
+        }
+        
         if (!$age || $age < 1 || $age > 150) {
             $this->failureCount++;
             $this->errors[] = [
                 'row' => $row,
-                'error' => 'Valid age (1-150) is required'
+                'error' => 'Valid age (1-150) is required. Found: ' . ($age ?? 'null')
             ];
             return null;
         }
@@ -133,11 +177,29 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
         // Get age group based on age
         $ageGroupId = $this->getAgeGroupIdByAge($age);
 
-        // Gender (optional, with default)
-        $gender = isset($row['gender']) ? strtolower(trim($row['gender'])) : 'prefer_not_to_say';
-        $validGenders = ['male', 'female', 'other', 'prefer_not_to_say'];
-        if (!in_array($gender, $validGenders)) {
-            $gender = 'prefer_not_to_say';
+        // Gender (optional, with default) - handle case-insensitive matching
+        $gender = 'prefer_not_to_say'; // default
+        $genderValue = '';
+        foreach ($row as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if ($lowerKey === 'gender') {
+                $genderValue = trim($value ?? '');
+                break;
+            }
+        }
+        
+        if (!empty($genderValue)) {
+            $genderInput = strtolower($genderValue);
+            // Also check for common variations
+            $genderMap = [
+                'male' => 'male',
+                'female' => 'female',
+                'm' => 'male',
+                'f' => 'female',
+                'other' => 'other',
+                'prefer_not_to_say' => 'prefer_not_to_say',
+            ];
+            $gender = $genderMap[$genderInput] ?? 'prefer_not_to_say';
         }
 
         // Hash password
@@ -180,13 +242,28 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             $userData['educational_qualification'] = trim($row['educational_qualification']);
         }
 
-        $this->successCount++;
-
-        return new User($userData);
+        try {
+            // Create user - ToModel will save it automatically
+            $user = new User($userData);
+            
+            // Increment success count only if we get here without errors
+            $this->successCount++;
+            
+            return $user;
+        } catch (\Exception $e) {
+            // If user creation fails, increment failure count
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Failed to create user: ' . $e->getMessage()
+            ];
+            return null;
+        }
     }
 
     /**
      * Validation rules for each row
+     * Note: These rules are case-insensitive and will match column headers regardless of case
      */
     public function rules(): array
     {
@@ -197,7 +274,7 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             'registration_no' => 'required|string|max:255',
             'password' => 'required|string|min:6',
             'age' => 'required|integer|min:1|max:150',
-            'gender' => 'nullable|in:male,female,other,prefer_not_to_say',
+            'gender' => 'nullable|string|max:255', // Made more flexible - we handle conversion in model()
             'contact_number' => 'nullable|string|max:20',
             'whatsapp_number' => 'nullable|string|max:20',
             'city' => 'nullable|string|max:255',
