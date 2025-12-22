@@ -446,10 +446,45 @@ class UserController extends Controller
      */
     public function importSchoolUsers(Request $request)
     {
+        // Try to get user from request (if middleware is applied)
         $currentUser = $request->user();
 
+        // If no user from middleware, try to authenticate manually using bearer token
+        if (!$currentUser) {
+            $token = $request->bearerToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Please provide a valid token',
+                ], 401);
+            }
+
+            // Find the token and get the user
+            $accessToken = PersonalAccessToken::findToken($token);
+            
+            if (!$accessToken) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Invalid token',
+                ], 401);
+            }
+
+            $currentUser = $accessToken->tokenable;
+            
+            if (!$currentUser) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - User not found',
+                ], 401);
+            }
+        }
+
         // Check if user is authenticated and is admin
-        if (!$currentUser || $currentUser->role !== 'admin') {
+        if ($currentUser->role !== 'admin') {
             return response()->json([
                 'data' => [],
                 'status' => 403,
@@ -506,10 +541,45 @@ class UserController extends Controller
      */
     public function importOrganizationUsers(Request $request)
     {
+        // Try to get user from request (if middleware is applied)
         $currentUser = $request->user();
 
+        // If no user from middleware, try to authenticate manually using bearer token
+        if (!$currentUser) {
+            $token = $request->bearerToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Please provide a valid token',
+                ], 401);
+            }
+
+            // Find the token and get the user
+            $accessToken = PersonalAccessToken::findToken($token);
+            
+            if (!$accessToken) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - Invalid token',
+                ], 401);
+            }
+
+            $currentUser = $accessToken->tokenable;
+            
+            if (!$currentUser) {
+                return response()->json([
+                    'data' => [],
+                    'status' => 401,
+                    'message' => 'Unauthorized - User not found',
+                ], 401);
+            }
+        }
+
         // Check if user is authenticated and is admin
-        if (!$currentUser || $currentUser->role !== 'admin') {
+        if ($currentUser->role !== 'admin') {
             return response()->json([
                 'data' => [],
                 'status' => 403,
