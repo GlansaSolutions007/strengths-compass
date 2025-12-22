@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\CountryController;
 use App\Http\Controllers\Api\StateController;
 use App\Http\Controllers\Api\AgeGroupController;
+use App\Http\Controllers\Api\SchoolController;
+use App\Http\Controllers\Api\OrganizationController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -35,6 +37,26 @@ Route::get('users/{id}', [UserController::class, 'show']);
 Route::put('users/{id}', [UserController::class, 'update']);
 Route::delete('users/{id}', [UserController::class, 'destroy']);
 Route::post('users/{id}/change-password', [UserController::class, 'changePassword']); // Admin: Change any user's password
+Route::post('users/import-school-users', [UserController::class, 'importSchoolUsers']); // Admin: Bulk import school users from Excel
+Route::post('users/import-organization-users', [UserController::class, 'importOrganizationUsers']); // Admin: Bulk import organization users from Excel
+
+// School CRUD (public for now)
+Route::get('schools', [SchoolController::class, 'index']);
+Route::post('schools', [SchoolController::class, 'store']);
+Route::get('schools/{id}', [SchoolController::class, 'show']);
+Route::put('schools/{id}', [SchoolController::class, 'update']);
+Route::delete('schools/{id}', [SchoolController::class, 'destroy']);
+Route::patch('schools/{id}/toggle-active', [SchoolController::class, 'toggleActive']);
+Route::get('schools/{id}/users', [SchoolController::class, 'getUsers']); // Get all users for a school
+
+// Organization CRUD (public for now)
+Route::get('organizations', [OrganizationController::class, 'index']);
+Route::post('organizations', [OrganizationController::class, 'store']);
+Route::get('organizations/{id}', [OrganizationController::class, 'show']);
+Route::put('organizations/{id}', [OrganizationController::class, 'update']);
+Route::delete('organizations/{id}', [OrganizationController::class, 'destroy']);
+Route::patch('organizations/{id}/toggle-active', [OrganizationController::class, 'toggleActive']);
+Route::get('organizations/{id}/users', [OrganizationController::class, 'getUsers']); // Get all users for an organization
 
 // Options routes (public)
 Route::get('options', [OptionsController::class, 'index']);

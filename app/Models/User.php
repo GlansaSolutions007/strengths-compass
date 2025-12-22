@@ -25,6 +25,9 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'user_type',
+        'school_id',
+        'organization_id',
         'gender',
         'age',
         'age_group_id',
@@ -70,5 +73,21 @@ class User extends Authenticatable
     public function ageGroup()
     {
         return $this->belongsTo(AgeGroup::class);
+    }
+
+    /**
+     * Get the school that the user belongs to
+     */
+    public function school()
+    {
+        return $this->belongsTo(School::class);
+    }
+
+    /**
+     * Get the organization that the user belongs to
+     */
+    public function organization()
+    {
+        return $this->belongsTo(Organization::class);
     }
 }

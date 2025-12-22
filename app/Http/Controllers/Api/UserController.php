@@ -5,9 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\AgeGroup;
+use App\Models\School;
+use App\Models\Organization;
+use App\Imports\SchoolUsersImport;
+use App\Imports\OrganizationUsersImport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class UserController extends Controller
@@ -53,8 +59,23 @@ class UserController extends Controller
             $query->where('role', $request->role);
         }
 
-        // Load age group relationship
-        $query->with('ageGroup');
+        // Filter by user_type if provided
+        if ($request->has('user_type')) {
+            $query->where('user_type', $request->user_type);
+        }
+
+        // Filter by school_id if provided
+        if ($request->has('school_id')) {
+            $query->where('school_id', $request->school_id);
+        }
+
+        // Filter by organization_id if provided
+        if ($request->has('organization_id')) {
+            $query->where('organization_id', $request->organization_id);
+        }
+
+        // Load relationships
+        $query->with(['ageGroup', 'school', 'organization']);
 
         $users = $query->orderByDesc('id')->paginate($perPage);
 
@@ -142,6 +163,7 @@ class UserController extends Controller
 
         // Determine validation rules based on the user being updated (not the current user)
         $isUpdatingAdmin = $user->role === 'admin';
+        $userType = $user->user_type ?? 'individual';
         
         // Validation rules differ for admin vs regular user
         if ($isUpdatingAdmin) {
@@ -167,15 +189,33 @@ class UserController extends Controller
                 'age' => 'sometimes|integer|min:1|max:150',
                 'educational_qualification' => 'sometimes|string|max:255',
                 'password' => 'sometimes|nullable|string|min:8|confirmed',
+                'user_type' => 'sometimes|in:individual,school,organization',
+                'school_id' => 'sometimes|nullable|exists:schools,id',
+                'organization_id' => 'sometimes|nullable|exists:organizations,id',
             ];
 
-            // Regular users cannot change their email or role
+            // Email validation: required for individual, optional for school/organization users
+            if ($userType === 'school' || $userType === 'organization') {
+                // School/Organization users: email is optional
+                if (!$currentUser || $currentUser->role !== 'admin') {
+                    $rules['email'] = 'prohibited';
+                } else {
+                    $rules['email'] = 'sometimes|nullable|string|email|max:255|unique:users,email,' . $user->id;
+                }
+            } else {
+                // Individual users: email is required
+                if (!$currentUser || $currentUser->role !== 'admin') {
+                    $rules['email'] = 'prohibited';
+                } else {
+                    $rules['email'] = 'sometimes|string|email|max:255|unique:users,email,' . $user->id;
+                }
+            }
+
+            // Regular users cannot change their role
             if (!$currentUser || $currentUser->role !== 'admin') {
-                $rules['email'] = 'prohibited';
                 $rules['role'] = 'prohibited';
             } else {
-                // Admins can change email and role for regular users
-                $rules['email'] = 'sometimes|string|email|max:255|unique:users,email,' . $user->id;
+                // Admins can change role for regular users
                 $rules['role'] = 'sometimes|in:admin,user';
             }
         }
@@ -209,6 +249,17 @@ class UserController extends Controller
                 'age',
                 'educational_qualification',
             ]);
+
+            // Add user_type, school_id, organization_id if provided
+            if ($request->has('user_type')) {
+                $updatable['user_type'] = $request->user_type;
+            }
+            if ($request->has('school_id')) {
+                $updatable['school_id'] = $request->school_id;
+            }
+            if ($request->has('organization_id')) {
+                $updatable['organization_id'] = $request->organization_id;
+            }
 
             // Admins can also update email and role for regular users
             if ($currentUser && $currentUser->role === 'admin') {
@@ -387,6 +438,126 @@ class UserController extends Controller
             'status' => 200,
             'message' => 'Password changed successfully',
         ], 200);
+    }
+
+    /**
+     * Bulk import school users from Excel file
+     * Admin only
+     */
+    public function importSchoolUsers(Request $request)
+    {
+        $currentUser = $request->user();
+
+        // Check if user is authenticated and is admin
+        if (!$currentUser || $currentUser->role !== 'admin') {
+            return response()->json([
+                'data' => [],
+                'status' => 403,
+                'message' => 'Forbidden - Admin access required',
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'school_id' => 'required|exists:schools,id',
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // Max 10MB
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $schoolId = $request->input('school_id');
+        $file = $request->file('file');
+
+        try {
+            $import = new SchoolUsersImport($schoolId);
+            Excel::import($import, $file);
+
+            $successCount = $import->getSuccessCount();
+            $failureCount = $import->getFailureCount();
+            $errors = $import->getErrors();
+
+            return response()->json([
+                'data' => [
+                    'success_count' => $successCount,
+                    'failure_count' => $failureCount,
+                    'errors' => $errors,
+                ],
+                'status' => 200,
+                'message' => "Import completed. {$successCount} users imported successfully" . ($failureCount > 0 ? ", {$failureCount} failed" : ""),
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'Import failed: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk import organization users from Excel file
+     * Admin only
+     */
+    public function importOrganizationUsers(Request $request)
+    {
+        $currentUser = $request->user();
+
+        // Check if user is authenticated and is admin
+        if (!$currentUser || $currentUser->role !== 'admin') {
+            return response()->json([
+                'data' => [],
+                'status' => 403,
+                'message' => 'Forbidden - Admin access required',
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'organization_id' => 'required|exists:organizations,id',
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // Max 10MB
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'data' => [],
+                'status' => 422,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $organizationId = $request->input('organization_id');
+        $file = $request->file('file');
+
+        try {
+            $import = new OrganizationUsersImport($organizationId);
+            Excel::import($import, $file);
+
+            $successCount = $import->getSuccessCount();
+            $failureCount = $import->getFailureCount();
+            $errors = $import->getErrors();
+
+            return response()->json([
+                'data' => [
+                    'success_count' => $successCount,
+                    'failure_count' => $failureCount,
+                    'errors' => $errors,
+                ],
+                'status' => 200,
+                'message' => "Import completed. {$successCount} users imported successfully" . ($failureCount > 0 ? ", {$failureCount} failed" : ""),
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'Import failed: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
