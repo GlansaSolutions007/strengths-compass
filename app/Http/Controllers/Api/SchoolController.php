@@ -40,6 +40,8 @@ class SchoolController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'shortcode' => 'nullable|string|max:50|unique:schools,shortcode',
+            'registration_no' => 'nullable|string|max:255|unique:schools,registration_no',
             'email' => 'nullable|email|max:255|unique:schools,email',
             'contact_number' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
@@ -59,8 +61,8 @@ class SchoolController extends Controller
         }
 
         $school = School::create($request->only([
-            'name', 'email', 'contact_number', 'address', 'city', 
-            'state', 'country', 'principal_name', 'is_active'
+            'name', 'shortcode', 'registration_no', 'email', 'contact_number', 
+            'address', 'city', 'state', 'country', 'principal_name', 'is_active'
         ]));
 
         return response()->json([
@@ -107,6 +109,8 @@ class SchoolController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
+            'shortcode' => 'sometimes|nullable|string|max:50|unique:schools,shortcode,' . $school->id,
+            'registration_no' => 'sometimes|nullable|string|max:255|unique:schools,registration_no,' . $school->id,
             'email' => 'sometimes|nullable|email|max:255|unique:schools,email,' . $school->id,
             'contact_number' => 'sometimes|nullable|string|max:20',
             'address' => 'sometimes|nullable|string|max:500',
@@ -126,8 +130,8 @@ class SchoolController extends Controller
         }
 
         $school->update($request->only([
-            'name', 'email', 'contact_number', 'address', 'city', 
-            'state', 'country', 'principal_name', 'is_active'
+            'name', 'shortcode', 'registration_no', 'email', 'contact_number', 
+            'address', 'city', 'state', 'country', 'principal_name', 'is_active'
         ]));
 
         $school->refresh();

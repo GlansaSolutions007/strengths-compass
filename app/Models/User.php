@@ -39,6 +39,9 @@ class User extends Authenticatable
         'country',
         'profession',
         'educational_qualification',
+        'class',
+        'employee_id',
+        'registration_no',
     ];
 
     /**

@@ -11,6 +11,8 @@ class Organization extends Model
 
     protected $fillable = [
         'name',
+        'shortcode',
+        'registration_no',
         'email',
         'contact_number',
         'address',

@@ -4,6 +4,7 @@ namespace App\Imports;
 
 use App\Models\User;
 use App\Models\AgeGroup;
+use App\Models\School;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithValidation;
@@ -20,6 +21,7 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
     use SkipsFailures;
 
     protected $schoolId;
+    protected $school;
     protected $errors = [];
     protected $successCount = 0;
     protected $failureCount = 0;
@@ -27,6 +29,7 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
     public function __construct($schoolId)
     {
         $this->schoolId = $schoolId;
+        $this->school = School::find($schoolId);
     }
 
     /**
@@ -57,24 +60,64 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             return null;
         }
 
-        // Email is optional for school users
-        $email = !empty($row['email']) ? trim($row['email']) : null;
+        // Class and Registration No are required for school users
+        $class = trim($row['class'] ?? '');
+        $registrationNo = trim($row['registration_no'] ?? '');
         
-        // If email is provided, check if it's unique
-        if ($email) {
-            if (User::where('email', $email)->exists()) {
-                $this->failureCount++;
-                $this->errors[] = [
-                    'row' => $row,
-                    'error' => "Email '{$email}' already exists"
-                ];
-                return null;
-            }
-        } else {
-            // Generate a unique email-like identifier for users without email
-            // Format: school{id}_user{timestamp}_{random}
-            $email = 'school' . $this->schoolId . '_user' . time() . '_' . Str::random(8) . '@school.local';
+        if (empty($class) || empty($registrationNo)) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Class and Registration No are required for school users'
+            ];
+            return null;
         }
+
+        // Check if school exists and has shortcode
+        if (!$this->school) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'School not found'
+            ];
+            return null;
+        }
+
+        if (empty($this->school->shortcode)) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'School shortcode is not set. Please set shortcode for the school first.'
+            ];
+            return null;
+        }
+
+        // Generate username: shortcode + class + registration_no
+        $username = strtolower($this->school->shortcode . $class . $registrationNo);
+        
+        // Check if username already exists
+        if (User::where('email', $username)->exists()) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => "Username '{$username}' already exists"
+            ];
+            return null;
+        }
+
+        // Password is required from Excel
+        $password = trim($row['password'] ?? '');
+        if (empty($password)) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Password is required'
+            ];
+            return null;
+        }
+
+        // Email is optional for school users (use username as email)
+        $email = $username;
 
         // Age is required for school users
         $age = isset($row['age']) ? (int) $row['age'] : null;
@@ -97,8 +140,8 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             $gender = 'prefer_not_to_say';
         }
 
-        // Generate a temporary password (can be changed later)
-        $password = Hash::make(Str::random(12));
+        // Hash password
+        $hashedPassword = Hash::make($password);
 
         // Build user data
         $userData = [
@@ -106,13 +149,15 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             'last_name' => $lastName,
             'name' => trim($firstName . ' ' . $lastName),
             'email' => $email,
-            'password' => $password,
+            'password' => $hashedPassword,
             'role' => 'user',
             'user_type' => 'school',
             'school_id' => $this->schoolId,
             'gender' => $gender,
             'age' => $age,
             'age_group_id' => $ageGroupId,
+            'class' => $class,
+            'registration_no' => $registrationNo,
         ];
 
         // Optional fields
@@ -148,7 +193,9 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
         return [
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
+            'class' => 'required|string|max:255',
+            'registration_no' => 'required|string|max:255',
+            'password' => 'required|string|min:6',
             'age' => 'required|integer|min:1|max:150',
             'gender' => 'nullable|in:male,female,other,prefer_not_to_say',
             'contact_number' => 'nullable|string|max:20',

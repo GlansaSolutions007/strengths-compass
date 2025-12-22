@@ -4,6 +4,7 @@ namespace App\Imports;
 
 use App\Models\User;
 use App\Models\AgeGroup;
+use App\Models\Organization;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithValidation;
@@ -20,6 +21,7 @@ class OrganizationUsersImport implements ToModel, WithHeadingRow, WithValidation
     use SkipsFailures;
 
     protected $organizationId;
+    protected $organization;
     protected $errors = [];
     protected $successCount = 0;
     protected $failureCount = 0;
@@ -27,6 +29,7 @@ class OrganizationUsersImport implements ToModel, WithHeadingRow, WithValidation
     public function __construct($organizationId)
     {
         $this->organizationId = $organizationId;
+        $this->organization = Organization::find($organizationId);
     }
 
     /**
@@ -57,24 +60,63 @@ class OrganizationUsersImport implements ToModel, WithHeadingRow, WithValidation
             return null;
         }
 
-        // Email is optional for organization users
-        $email = !empty($row['email']) ? trim($row['email']) : null;
+        // Employee ID is required for organization users
+        $employeeId = trim($row['employee_id'] ?? '');
         
-        // If email is provided, check if it's unique
-        if ($email) {
-            if (User::where('email', $email)->exists()) {
-                $this->failureCount++;
-                $this->errors[] = [
-                    'row' => $row,
-                    'error' => "Email '{$email}' already exists"
-                ];
-                return null;
-            }
-        } else {
-            // Generate a unique email-like identifier for users without email
-            // Format: org{id}_user{timestamp}_{random}
-            $email = 'org' . $this->organizationId . '_user' . time() . '_' . Str::random(8) . '@organization.local';
+        if (empty($employeeId)) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Employee ID is required for organization users'
+            ];
+            return null;
         }
+
+        // Check if organization exists and has shortcode
+        if (!$this->organization) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Organization not found'
+            ];
+            return null;
+        }
+
+        if (empty($this->organization->shortcode)) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Organization shortcode is not set. Please set shortcode for the organization first.'
+            ];
+            return null;
+        }
+
+        // Generate username: shortcode + employee_id
+        $username = strtolower($this->organization->shortcode . $employeeId);
+        
+        // Check if username already exists
+        if (User::where('email', $username)->exists()) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => "Username '{$username}' already exists"
+            ];
+            return null;
+        }
+
+        // Password is required from Excel
+        $password = trim($row['password'] ?? '');
+        if (empty($password)) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Password is required'
+            ];
+            return null;
+        }
+
+        // Email is optional for organization users (use username as email)
+        $email = $username;
 
         // Age is required for organization users
         $age = isset($row['age']) ? (int) $row['age'] : null;
@@ -97,8 +139,8 @@ class OrganizationUsersImport implements ToModel, WithHeadingRow, WithValidation
             $gender = 'prefer_not_to_say';
         }
 
-        // Generate a temporary password (can be changed later)
-        $password = Hash::make(Str::random(12));
+        // Hash password
+        $hashedPassword = Hash::make($password);
 
         // Build user data
         $userData = [
@@ -106,12 +148,13 @@ class OrganizationUsersImport implements ToModel, WithHeadingRow, WithValidation
             'last_name' => $lastName,
             'name' => trim($firstName . ' ' . $lastName),
             'email' => $email,
-            'password' => $password,
+            'password' => $hashedPassword,
             'role' => 'user',
             'user_type' => 'organization',
             'organization_id' => $this->organizationId,
             'gender' => $gender,
             'age' => $age,
+            'employee_id' => $employeeId,
         ];
 
         // Add age_group_id if found
@@ -155,7 +198,8 @@ class OrganizationUsersImport implements ToModel, WithHeadingRow, WithValidation
         return [
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
+            'employee_id' => 'required|string|max:255',
+            'password' => 'required|string|min:6',
             'age' => 'required|integer|min:1|max:150',
             'gender' => 'nullable|in:male,female,other,prefer_not_to_say',
             'contact_number' => 'nullable|string|max:20',
