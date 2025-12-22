@@ -40,6 +40,8 @@ class OrganizationController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'shortcode' => 'nullable|string|max:50|unique:organizations,shortcode',
+            'registration_no' => 'nullable|string|max:255|unique:organizations,registration_no',
             'email' => 'nullable|email|max:255|unique:organizations,email',
             'contact_number' => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
@@ -58,8 +60,8 @@ class OrganizationController extends Controller
         }
 
         $organization = Organization::create($request->only([
-            'name', 'email', 'contact_number', 'address', 'city', 
-            'state', 'country', 'is_active'
+            'name', 'shortcode', 'registration_no', 'email', 'contact_number', 
+            'address', 'city', 'state', 'country', 'is_active'
         ]));
 
         return response()->json([
@@ -106,6 +108,8 @@ class OrganizationController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
+            'shortcode' => 'sometimes|nullable|string|max:50|unique:organizations,shortcode,' . $organization->id,
+            'registration_no' => 'sometimes|nullable|string|max:255|unique:organizations,registration_no,' . $organization->id,
             'email' => 'sometimes|nullable|email|max:255|unique:organizations,email,' . $organization->id,
             'contact_number' => 'sometimes|nullable|string|max:20',
             'address' => 'sometimes|nullable|string|max:500',
@@ -124,8 +128,8 @@ class OrganizationController extends Controller
         }
 
         $organization->update($request->only([
-            'name', 'email', 'contact_number', 'address', 'city', 
-            'state', 'country', 'is_active'
+            'name', 'shortcode', 'registration_no', 'email', 'contact_number', 
+            'address', 'city', 'state', 'country', 'is_active'
         ]));
 
         $organization->refresh();
