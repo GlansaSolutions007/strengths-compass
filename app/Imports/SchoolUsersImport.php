@@ -26,10 +26,45 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
     protected $successCount = 0;
     protected $failureCount = 0;
 
+    /**
+     * Override onFailure to log validation failures
+     * Note: SkipsFailures trait already implements onFailure, so we override it
+     */
+    public function onFailure(\Maatwebsite\Excel\Validators\Failure ...$failures)
+    {
+        // Store failures using the trait's method (access protected property)
+        $this->failures = array_merge($this->failures ?? [], $failures);
+        
+        // Log and track in our custom errors array
+        foreach ($failures as $failure) {
+            $this->failureCount++;
+            $errorMessage = $failure->attribute() . ': ' . implode(', ', $failure->errors());
+            
+            \Log::warning('School user import validation failed', [
+                'row' => $failure->row(),
+                'attribute' => $failure->attribute(),
+                'errors' => $failure->errors(),
+                'values' => $failure->values(),
+            ]);
+            
+            $this->errors[] = [
+                'row' => $failure->row(),
+                'error' => $errorMessage,
+                'values' => $failure->values(),
+            ];
+        }
+    }
+
     public function __construct($schoolId)
     {
         $this->schoolId = $schoolId;
         $this->school = School::find($schoolId);
+        
+        \Log::info('SchoolUsersImport initialized', [
+            'school_id' => $schoolId,
+            'school_found' => $this->school ? true : false,
+            'school_shortcode' => $this->school ? $this->school->shortcode : null,
+        ]);
     }
 
     /**
@@ -85,10 +120,12 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
         foreach ($row as $key => $value) {
             $lowerKey = strtolower(trim($key));
             if ($lowerKey === 'class') {
-                $class = trim($value ?? '');
+                // Convert to string (Excel may read as number)
+                $class = trim((string) ($value ?? ''));
             }
             if ($lowerKey === 'registration_no' || $lowerKey === 'registrationno' || $lowerKey === 'reg_no') {
-                $registrationNo = trim($value ?? '');
+                // Convert to string (Excel may read as number)
+                $registrationNo = trim((string) ($value ?? ''));
             }
         }
         
@@ -138,7 +175,8 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
         foreach ($row as $key => $value) {
             $lowerKey = strtolower(trim($key));
             if ($lowerKey === 'password') {
-                $password = trim($value ?? '');
+                // Convert to string (Excel may read as number)
+                $password = trim((string) $value ?? '');
                 break;
             }
         }
@@ -148,6 +186,16 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
             $this->errors[] = [
                 'row' => $row,
                 'error' => 'Password is required'
+            ];
+            return null;
+        }
+        
+        // Validate password length after conversion
+        if (strlen($password) < 6) {
+            $this->failureCount++;
+            $this->errors[] = [
+                'row' => $row,
+                'error' => 'Password must be at least 6 characters long'
             ];
             return null;
         }
@@ -263,24 +311,24 @@ class SchoolUsersImport implements ToModel, WithHeadingRow, WithValidation, Skip
 
     /**
      * Validation rules for each row
-     * Note: These rules are case-insensitive and will match column headers regardless of case
+     * Note: These rules accept both string and numeric values (Excel may read numbers as numeric)
      */
     public function rules(): array
     {
         return [
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'class' => 'required|string|max:255',
-            'registration_no' => 'required|string|max:255',
-            'password' => 'required|string|min:6',
+            'first_name' => 'required|max:255',
+            'last_name' => 'required|max:255',
+            'class' => 'required|max:255',
+            'registration_no' => 'required|max:255', // Accept any type, we'll convert to string
+            'password' => 'required|min:6', // Accept any type, we'll convert to string
             'age' => 'required|integer|min:1|max:150',
-            'gender' => 'nullable|string|max:255', // Made more flexible - we handle conversion in model()
-            'contact_number' => 'nullable|string|max:20',
-            'whatsapp_number' => 'nullable|string|max:20',
-            'city' => 'nullable|string|max:255',
-            'state' => 'nullable|string|max:255',
-            'country' => 'nullable|string|max:255',
-            'educational_qualification' => 'nullable|string|max:255',
+            'gender' => 'nullable|max:255', // Made more flexible - we handle conversion in model()
+            'contact_number' => 'nullable|max:20',
+            'whatsapp_number' => 'nullable|max:20',
+            'city' => 'nullable|max:255',
+            'state' => 'nullable|max:255',
+            'country' => 'nullable|max:255',
+            'educational_qualification' => 'nullable|max:255',
         ];
     }
 

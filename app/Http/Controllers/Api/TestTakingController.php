@@ -148,7 +148,7 @@ class TestTakingController extends Controller
                 if (strtoupper($category) === 'SDB') {
                     $includeInConstruct = false;
                 } else {
-                    $includeInConstruct = $scoringRule->include_in_construct ?? true;
+                $includeInConstruct = $scoringRule->include_in_construct ?? true;
                 }
 
                 // Calculate final score based on category

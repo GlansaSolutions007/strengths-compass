@@ -209,11 +209,12 @@ class AuthController extends Controller
 
     /**
      * Login user and create token
+     * Accepts either email or username (for school/organization users, email field contains username)
      */
     public function login(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|string|email',
+            'email' => 'required|string', // Removed 'email' validation to accept username format
             'password' => 'required|string',
         ]);
 
@@ -226,6 +227,7 @@ class AuthController extends Controller
             ], 422);
         }
 
+        // Check both email and username fields (email field stores username for school/org users)
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
