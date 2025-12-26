@@ -89,6 +89,15 @@ class TestTakingController extends Controller
 
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
+            'is_consent' => [
+                'required',
+                function ($attribute, $value, $fail) {
+                    // Consent must be true/checked (accepts: true, 1, '1', 'true', 'yes', 'on')
+                    if (!filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)) {
+                        $fail('You must provide consent to take this assessment. Please check the consent checkbox.');
+                    }
+                },
+            ],
             'answers' => 'required|array',
             'answers.*.question_id' => [
                 'required',
@@ -113,14 +122,16 @@ class TestTakingController extends Controller
 
         $userId = $request->input('user_id');
         $answers = $request->input('answers');
+        $isConsent = $request->boolean('is_consent', false);
 
         DB::beginTransaction();
         try {
-            // Create test result
+            // Create test result with consent
             $testResult = TestResult::create([
                 'user_id' => $userId,
                 'test_id' => $testId,
-                'status' => 'completed'
+                'status' => 'completed',
+                'is_consent' => $isConsent
             ]);
 
             // Process each answer and calculate scores

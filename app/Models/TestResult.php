@@ -19,11 +19,13 @@ class TestResult extends Model
         'construct_scores',
         'sdb_flag',
         'status',
-        'expert_id'
+        'expert_id',
+        'is_consent'
     ];
 
     protected $casts = [
         'sdb_flag' => 'boolean',
+        'is_consent' => 'boolean',
     ];
 
     /**
