@@ -5,15 +5,22 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use App\Models\QuestionsModel as Question;
 use App\Models\Construct;
+use App\Models\QuestionTranslation;
+use App\Models\Language;
+use App\Models\QuestionTranslationImport;
 use App\Imports\QuestionsImport;
 use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class QuestionsController extends Controller
 {
     /**
      * Display a listing of the resource.
+     * Supports language translations via 'lang' parameter (default: 'en')
+     * If translation exists, returns translated_text; otherwise returns question_text
      */
     public function index(Request $request)
     {
@@ -38,10 +45,68 @@ class QuestionsController extends Controller
 
         $questions = $query->orderBy('order_no')->get();
 
+        // Handle language translation
+        $lang = $request->input('lang', 'en');
+        $languageId = null;
+
+        // Get language ID if not English
+        if ($lang !== 'en') {
+            $language = Language::where(function($query) use ($lang) {
+                $query->whereRaw('LOWER(name) = ?', [strtolower(trim($lang))])
+                      ->orWhere('code', trim($lang));
+            })
+            ->where('is_active', true)
+            ->first();
+
+            if ($language) {
+                $languageId = $language->id;
+            }
+        }
+
+        // If language is specified and found, load translations
+        if ($languageId) {
+            $questionIds = $questions->pluck('id')->toArray();
+            $translations = QuestionTranslation::whereIn('question_id', $questionIds)
+                ->where('language_id', $languageId)
+                ->where('is_active', true)
+                ->pluck('translated_text', 'question_id')
+                ->map(function ($text) {
+                    // Ensure UTF-8 encoding
+                    if (!mb_check_encoding($text, 'UTF-8')) {
+                        return mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+                    }
+                    return $text;
+                })
+                ->toArray();
+        } else {
+            $translations = [];
+        }
+
+        // Map questions with translations
+        $questions = $questions->map(function ($question) use ($translations) {
+            $questionArray = $question->toArray();
+            
+            // Replace question_text with translated_text if translation exists
+            if (isset($translations[$question->id])) {
+                $translatedText = $translations[$question->id];
+                // Ensure UTF-8 encoding
+                if (!mb_check_encoding($translatedText, 'UTF-8')) {
+                    $translatedText = mb_convert_encoding($translatedText, 'UTF-8', 'UTF-8');
+                }
+                $questionArray['question_text'] = $translatedText;
+                $questionArray['is_translated'] = true;
+            } else {
+                $questionArray['is_translated'] = false;
+            }
+            
+            return $questionArray;
+        });
+
         return response()->json([
             'status' => true,
             'data' => $questions,
             'message' => 'Questions fetched successfully',
+            'language' => $lang,
         ], 200);
     }
 
@@ -82,8 +147,10 @@ class QuestionsController extends Controller
 
     /**
      * Display the specified resource.
+     * Supports language translations via 'lang' parameter (default: 'en')
+     * If translation exists, returns translated_text; otherwise returns question_text
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $question = Question::with(['construct', 'ageGroup'])->find($id);
 
@@ -94,10 +161,48 @@ class QuestionsController extends Controller
             ], 404);
         }
 
+        // Handle language translation
+        $lang = $request->input('lang', 'en');
+        $languageId = null;
+
+        // Get language ID if not English
+        if ($lang !== 'en') {
+            $language = Language::where(function($query) use ($lang) {
+                $query->whereRaw('LOWER(name) = ?', [strtolower(trim($lang))])
+                      ->orWhere('code', trim($lang));
+            })
+            ->where('is_active', true)
+            ->first();
+
+            if ($language) {
+                $languageId = $language->id;
+            }
+        }
+
+        // If language is specified and found, load translation
+        $questionArray = $question->toArray();
+        
+        if ($languageId) {
+            $translation = QuestionTranslation::where('question_id', $question->id)
+                ->where('language_id', $languageId)
+                ->where('is_active', true)
+                ->first();
+
+            if ($translation) {
+                $questionArray['question_text'] = $translation->translated_text;
+                $questionArray['is_translated'] = true;
+            } else {
+                $questionArray['is_translated'] = false;
+            }
+        } else {
+            $questionArray['is_translated'] = false;
+        }
+
         return response()->json([
             'status' => true,
-            'data' => $question,
+            'data' => $questionArray,
             'message' => 'Question fetched successfully',
+            'language' => $lang,
         ], 200);
     }
 
@@ -169,8 +274,10 @@ class QuestionsController extends Controller
 
     /**
      * List questions by construct ID
+     * Supports language translations via 'lang' parameter (default: 'en')
+     * If translation exists, returns translated_text; otherwise returns question_text
      */
-    public function byConstruct(string $constructId)
+    public function byConstruct(Request $request, string $constructId)
     {
         $construct = Construct::find($constructId);
 
@@ -185,10 +292,68 @@ class QuestionsController extends Controller
             ->orderBy('order_no')
             ->get();
 
+        // Handle language translation
+        $lang = $request->input('lang', 'en');
+        $languageId = null;
+
+        // Get language ID if not English
+        if ($lang !== 'en') {
+            $language = Language::where(function($query) use ($lang) {
+                $query->whereRaw('LOWER(name) = ?', [strtolower(trim($lang))])
+                      ->orWhere('code', trim($lang));
+            })
+            ->where('is_active', true)
+            ->first();
+
+            if ($language) {
+                $languageId = $language->id;
+            }
+        }
+
+        // If language is specified and found, load translations
+        if ($languageId) {
+            $questionIds = $questions->pluck('id')->toArray();
+            $translations = QuestionTranslation::whereIn('question_id', $questionIds)
+                ->where('language_id', $languageId)
+                ->where('is_active', true)
+                ->pluck('translated_text', 'question_id')
+                ->map(function ($text) {
+                    // Ensure UTF-8 encoding
+                    if (!mb_check_encoding($text, 'UTF-8')) {
+                        return mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+                    }
+                    return $text;
+                })
+                ->toArray();
+        } else {
+            $translations = [];
+        }
+
+        // Map questions with translations
+        $questions = $questions->map(function ($question) use ($translations) {
+            $questionArray = $question->toArray();
+            
+            // Replace question_text with translated_text if translation exists
+            if (isset($translations[$question->id])) {
+                $translatedText = $translations[$question->id];
+                // Ensure UTF-8 encoding
+                if (!mb_check_encoding($translatedText, 'UTF-8')) {
+                    $translatedText = mb_convert_encoding($translatedText, 'UTF-8', 'UTF-8');
+                }
+                $questionArray['question_text'] = $translatedText;
+                $questionArray['is_translated'] = true;
+            } else {
+                $questionArray['is_translated'] = false;
+            }
+            
+            return $questionArray;
+        });
+
         return response()->json([
             'status' => true,
             'data' => $questions,
             'message' => 'Questions fetched successfully',
+            'language' => $lang,
         ], 200);
     }
 
@@ -419,5 +584,494 @@ class QuestionsController extends Controller
             'message' => 'Question active status toggled successfully',
             'data' => $question
         ], 200);
+    }
+
+    /**
+     * Export all active questions as CSV template for translations
+     * Admin only
+     * 
+     * Headers: question_id, question_en, language, translated_text
+     * - question_en comes from questions.question_text
+     * - language and translated_text are empty (for translators to fill)
+     * - Optional: Filter by age_group_id parameter
+     */
+    public function exportTranslationTemplate(Request $request)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        // Build query for active questions
+        $query = Question::where('is_active', true);
+
+        // Filter by age_group_id if provided
+        if ($request->has('age_group_id')) {
+            $query->where('age_group_id', $request->input('age_group_id'));
+        }
+
+        // Get questions ordered by id
+        $questions = $query->orderBy('id')
+            ->get(['id', 'question_text']);
+
+        $fileName = 'question_translation_template.csv';
+
+        return response()->streamDownload(function () use ($questions) {
+            $handle = fopen('php://output', 'w');
+            
+            // Add UTF-8 BOM for Excel compatibility
+            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
+            
+            // Write CSV headers
+            fputcsv($handle, ['question_id', 'question_en', 'language', 'translated_text']);
+            
+            // Write question data
+            foreach ($questions as $question) {
+                fputcsv($handle, [
+                    $question->id,
+                    $question->question_text,
+                    '', // language - empty for translators to fill
+                    '', // translated_text - empty for translators to fill
+                ]);
+            }
+            
+            fclose($handle);
+        }, $fileName, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
+        ]);
+    }
+
+    /**
+     * Import question translations from CSV file
+     * Admin only
+     * 
+     * CSV columns: question_id, question_en, language, translated_text
+     * - Ignores question_en column
+     * - Validates question_id exists
+     * - Maps language column (full name like "Telugu", "Hindi" or code like "te", "hi") to language records
+     * - Validates language exists and is active (rejects rows where language name does not exist)
+     * - Skips rows with empty translated_text
+     * - Inserts or updates translation based on (question_id + language)
+     */
+    public function importTranslations(Request $request)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:xlsx,xls,csv,txt|max:10240', // 10MB max
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed',
+            ], 422);
+        }
+
+        $file = $request->file('file');
+        $fileName = $file->getClientOriginalName();
+        $fileExtension = strtolower($file->getClientOriginalExtension());
+        $isExcel = in_array($fileExtension, ['xlsx', 'xls']);
+        
+        $stats = [
+            'inserted' => 0,
+            'updated' => 0,
+            'skipped' => 0,
+            'failed' => 0,
+            'errors' => [],
+        ];
+
+        $chunkSize = 100; // Process 100 rows at a time
+        $importRecord = null;
+
+        try {
+            // Pre-load all active languages for faster lookup
+            $languages = Language::where('is_active', true)->get();
+            $languageMap = [];
+            foreach ($languages as $lang) {
+                $languageMap[strtolower($lang->name)] = $lang;
+                $languageMap[strtolower($lang->code)] = $lang;
+            }
+
+            // Pre-load all questions for faster lookup
+            $questions = Question::pluck('id')->toArray();
+            $questionSet = array_flip($questions);
+
+            $headers = [];
+            $rows = [];
+            $questionIdIndex = null;
+            $languageIndex = null;
+            $translatedTextIndex = null;
+
+            // Process file based on type
+            if ($isExcel) {
+                // Read Excel file
+                $data = Excel::toArray([], $file);
+                if (empty($data) || empty($data[0])) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'Excel file is empty or invalid',
+                    ], 422);
+                }
+
+                $rows = $data[0];
+                $headers = array_shift($rows); // Remove header row
+
+                // Normalize headers (trim, lowercase for comparison)
+                $normalizedHeaders = array_map(function($header) {
+                    return strtolower(trim($header));
+                }, $headers);
+
+                // Find column indices
+                $questionIdIndex = array_search('question_id', $normalizedHeaders);
+                $languageIndex = array_search('language', $normalizedHeaders);
+                $translatedTextIndex = array_search('translated_text', $normalizedHeaders);
+
+                // Validate required columns exist
+                if ($questionIdIndex === false || $languageIndex === false || $translatedTextIndex === false) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'File must contain columns: question_id, language, translated_text',
+                        'found_columns' => $headers,
+                    ], 422);
+                }
+            } else {
+                // Process CSV file with UTF-8 encoding support
+                $filePath = $file->getRealPath();
+                
+                try {
+                    // Read file content
+                    $fileContent = file_get_contents($filePath);
+                    
+                    if ($fileContent === false) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Failed to read CSV file',
+                        ], 422);
+                    }
+                    
+                    // Remove UTF-8 BOM if present
+                    if (substr($fileContent, 0, 3) === "\xEF\xBB\xBF") {
+                        $fileContent = substr($fileContent, 3);
+                    }
+                    
+                    // Detect encoding (try common encodings)
+                    $detectedEncoding = mb_detect_encoding($fileContent, ['UTF-8', 'UTF-16LE', 'UTF-16BE', 'ISO-8859-1', 'Windows-1252', 'ASCII'], true);
+                    
+                    // Convert to UTF-8 if not already UTF-8
+                    if ($detectedEncoding && $detectedEncoding !== 'UTF-8') {
+                        $converted = @mb_convert_encoding($fileContent, 'UTF-8', $detectedEncoding);
+                        if ($converted !== false) {
+                            $fileContent = $converted;
+                        }
+                    }
+                    
+                    // Validate UTF-8 encoding
+                    if (!mb_check_encoding($fileContent, 'UTF-8')) {
+                        // Try to fix invalid UTF-8 sequences
+                        $fileContent = mb_convert_encoding($fileContent, 'UTF-8', 'UTF-8');
+                    }
+                    
+                    // Create temporary file with UTF-8 content
+                    $tempFile = tempnam(sys_get_temp_dir(), 'csv_import_');
+                    if ($tempFile === false) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Failed to create temporary file',
+                        ], 422);
+                    }
+                    
+                    file_put_contents($tempFile, $fileContent);
+                    
+                    // Open file
+                    $handle = fopen($tempFile, 'r');
+                    
+                    if (!$handle) {
+                        @unlink($tempFile);
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Failed to open CSV file',
+                        ], 422);
+                    }
+                    
+                    // Read and skip header row
+                    $headers = fgetcsv($handle);
+                    if (!$headers || empty($headers)) {
+                        fclose($handle);
+                        @unlink($tempFile);
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'CSV file is empty or invalid',
+                        ], 422);
+                    }
+
+                    // Clean and normalize headers
+                    $headers = array_map(function($header) {
+                        if (!mb_check_encoding($header, 'UTF-8')) {
+                            $header = mb_convert_encoding($header, 'UTF-8', 'UTF-8');
+                        }
+                        return trim($header);
+                    }, $headers);
+
+                    // Normalize headers (trim, lowercase for comparison)
+                    $normalizedHeaders = array_map(function($header) {
+                        return mb_strtolower(trim($header), 'UTF-8');
+                    }, $headers);
+
+                    // Find column indices
+                    $questionIdIndex = array_search('question_id', $normalizedHeaders);
+                    $languageIndex = array_search('language', $normalizedHeaders);
+                    $translatedTextIndex = array_search('translated_text', $normalizedHeaders);
+
+                    // Validate required columns exist
+                    if ($questionIdIndex === false || $languageIndex === false || $translatedTextIndex === false) {
+                        fclose($handle);
+                        @unlink($tempFile);
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'CSV file must contain columns: question_id, language, translated_text',
+                            'found_columns' => $headers,
+                        ], 422);
+                    }
+
+                    // Read all CSV rows and ensure UTF-8 encoding
+                    while (($row = fgetcsv($handle)) !== false) {
+                        // Clean each cell to ensure UTF-8 encoding
+                        $row = array_map(function($cell) {
+                            if ($cell !== null && $cell !== '') {
+                                if (!mb_check_encoding($cell, 'UTF-8')) {
+                                    $cell = mb_convert_encoding($cell, 'UTF-8', 'UTF-8');
+                                }
+                            }
+                            return $cell;
+                        }, $row);
+                        $rows[] = $row;
+                    }
+                    fclose($handle);
+                    @unlink($tempFile);
+                    
+                } catch (\Exception $e) {
+                    if (isset($handle) && is_resource($handle)) {
+                        fclose($handle);
+                    }
+                    if (isset($tempFile) && file_exists($tempFile)) {
+                        @unlink($tempFile);
+                    }
+                    throw $e;
+                }
+            }
+
+            $rowNumber = 1; // Start from 1 (header is row 0)
+            $chunk = [];
+            $totalRows = 0;
+
+            // Process rows (from CSV or Excel)
+            foreach ($rows as $row) {
+                $rowNumber++;
+                $totalRows++;
+                
+                // Skip empty rows
+                if (empty(array_filter($row))) {
+                    continue;
+                }
+
+                // Extract values (handle both array and CSV row formats)
+                $questionId = isset($row[$questionIdIndex]) ? trim((string)$row[$questionIdIndex]) : null;
+                $languageInput = isset($row[$languageIndex]) ? trim((string)$row[$languageIndex]) : null;
+                $translatedText = isset($row[$translatedTextIndex]) ? trim((string)$row[$translatedTextIndex]) : null;
+
+                // Skip rows with empty translated_text
+                if (empty($translatedText)) {
+                    $stats['skipped']++;
+                    if (count($stats['errors']) < 100) { // Limit error details to prevent memory issues
+                        $stats['errors'][] = [
+                            'row' => $rowNumber,
+                            'question_id' => $questionId,
+                            'language' => $languageInput,
+                            'error' => 'translated_text is empty',
+                        ];
+                    }
+                    continue;
+                }
+
+                // Validate question_id exists (using pre-loaded set)
+                if (empty($questionId) || !is_numeric($questionId) || !isset($questionSet[$questionId])) {
+                    $stats['failed']++;
+                    if (count($stats['errors']) < 100) {
+                        $stats['errors'][] = [
+                            'row' => $rowNumber,
+                            'question_id' => $questionId,
+                            'language' => $languageInput,
+                            'error' => empty($questionId) || !is_numeric($questionId) 
+                                ? 'question_id is required and must be numeric'
+                                : 'question_id does not exist',
+                        ];
+                    }
+                    continue;
+                }
+
+                // Validate language exists and is active (using pre-loaded map)
+                if (empty($languageInput)) {
+                    $stats['failed']++;
+                    if (count($stats['errors']) < 100) {
+                        $stats['errors'][] = [
+                            'row' => $rowNumber,
+                            'question_id' => $questionId,
+                            'language' => $languageInput,
+                            'error' => 'language is required',
+                        ];
+                    }
+                    continue;
+                }
+
+                $languageKey = strtolower(trim($languageInput));
+                $language = $languageMap[$languageKey] ?? null;
+
+                if (!$language) {
+                    $stats['failed']++;
+                    if (count($stats['errors']) < 100) {
+                        $stats['errors'][] = [
+                            'row' => $rowNumber,
+                            'question_id' => $questionId,
+                            'language' => $languageInput,
+                            'error' => 'language name does not exist or is not active',
+                        ];
+                    }
+                    continue;
+                }
+
+                // Add to chunk for batch processing
+                $chunk[] = [
+                    'question_id' => (int)$questionId,
+                    'language_id' => $language->id,
+                    'translated_text' => $translatedText,
+                    'row_number' => $rowNumber,
+                ];
+
+                // Process chunk when it reaches the chunk size
+                if (count($chunk) >= $chunkSize) {
+                    $this->processChunk($chunk, $stats);
+                    $chunk = [];
+                }
+            }
+
+            // Process remaining rows in chunk
+            if (!empty($chunk)) {
+                $this->processChunk($chunk, $stats);
+            }
+
+            // Determine status
+            $status = 'completed';
+            if ($stats['failed'] > 0 && $stats['inserted'] + $stats['updated'] == 0) {
+                $status = 'failed';
+            } elseif ($stats['failed'] > 0) {
+                $status = 'partial';
+            }
+
+            // Log import history
+            $importRecord = QuestionTranslationImport::create([
+                'user_id' => $currentUser?->id,
+                'file_name' => $fileName,
+                'total_rows' => $totalRows,
+                'inserted' => $stats['inserted'],
+                'updated' => $stats['updated'],
+                'skipped' => $stats['skipped'],
+                'failed' => $stats['failed'],
+                'errors' => count($stats['errors']) > 100 
+                    ? array_slice($stats['errors'], 0, 100) + ['_truncated' => 'Only first 100 errors shown']
+                    : $stats['errors'],
+                'status' => $status,
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Import completed',
+                'data' => array_merge($stats, [
+                    'import_id' => $importRecord->id,
+                    'total_rows' => $totalRows,
+                ]),
+            ], 200);
+
+        } catch (\Exception $e) {
+            // Log failed import if record was created
+            if ($importRecord) {
+                $importRecord->update([
+                    'status' => 'failed',
+                    'notes' => 'Exception: ' . $e->getMessage(),
+                ]);
+            }
+
+            \Log::error('Question translation import failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $fileName,
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Error processing file: ' . $e->getMessage(),
+                'data' => $stats,
+            ], 500);
+        }
+    }
+
+    /**
+     * Process a chunk of translation data with database transaction
+     * Prevents duplicate inserts using updateOrCreate
+     */
+    protected function processChunk(array $chunk, array &$stats)
+    {
+        DB::transaction(function () use ($chunk, &$stats) {
+            foreach ($chunk as $item) {
+                try {
+                    // Use updateOrCreate to prevent duplicates
+                    // This ensures one translation per (question_id + language_id) combination
+                    $translation = QuestionTranslation::updateOrCreate(
+                        [
+                            'question_id' => $item['question_id'],
+                            'language_id' => $item['language_id'],
+                        ],
+                        [
+                            'translated_text' => $item['translated_text'],
+                            'is_active' => true,
+                        ]
+                    );
+
+                    // Track if it was created or updated
+                    if ($translation->wasRecentlyCreated) {
+                        $stats['inserted']++;
+                    } else {
+                        $stats['updated']++;
+                    }
+                } catch (\Exception $e) {
+                    $stats['failed']++;
+                    if (count($stats['errors']) < 100) {
+                        $stats['errors'][] = [
+                            'row' => $item['row_number'],
+                            'question_id' => $item['question_id'],
+                            'language_id' => $item['language_id'],
+                            'error' => 'Failed to save translation: ' . $e->getMessage(),
+                        ];
+                    }
+                }
+            }
+        });
     }
 }

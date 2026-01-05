@@ -97,8 +97,13 @@ Route::get('clusters/{clusterId}/constructs', [ConstructController::class, 'getB
 
 // Questions CRUD (public for now)
 Route::get('questions', [QuestionsController::class, 'index']);
-Route::get('questions/{id}', [QuestionsController::class, 'show']);
 Route::post('questions', [QuestionsController::class, 'store']);
+
+// Questions Export (Admin) - Must be before questions/{id} to avoid route conflict
+Route::get('questions/export-translation-template', [QuestionsController::class, 'exportTranslationTemplate']);
+
+// Questions by ID - Must be after specific routes
+Route::get('questions/{id}', [QuestionsController::class, 'show']);
 Route::put('questions/{id}', [QuestionsController::class, 'update']);
 Route::delete('questions/{id}', [QuestionsController::class, 'destroy']);
 Route::patch('questions/{id}/toggle-active', [QuestionsController::class, 'toggleActive']);
@@ -108,6 +113,9 @@ Route::get('constructs/{constructId}/questions', [QuestionsController::class, 'b
 
 // Questions Bulk Upload
 Route::post('questions/bulk-upload', [QuestionsController::class, 'bulkUpload']);
+
+// Questions Import Translations (Admin)
+Route::post('questions/import-translations', [QuestionsController::class, 'importTranslations']);
 
 // Questions Construct Assignment
 Route::post('questions/{id}/assign-construct', [QuestionsController::class, 'assignConstruct']);

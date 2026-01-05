@@ -15,6 +15,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // ✅ global CORS middleware
         $middleware->append(HandleCors::class);
+        // ✅ Ensure UTF-8 encoding for all responses
+        $middleware->append(\App\Http\Middleware\EnsureUtf8Encoding::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

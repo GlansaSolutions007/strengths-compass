@@ -18,4 +18,12 @@ class QuestionsModel extends Model
     {
         return $this->belongsTo(AgeGroup::class);
     }
+
+    /**
+     * Get all translations for this question
+     */
+    public function translations()
+    {
+        return $this->hasMany(QuestionTranslation::class, 'question_id');
+    }
 }

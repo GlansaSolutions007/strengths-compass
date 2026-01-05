@@ -11,8 +11,12 @@ use App\Models\OptionsModel;
 use App\Models\QuestionsModel;
 use App\Models\ScoringRule;
 use App\Models\User;
+use App\Models\Language;
+use App\Models\QuestionTranslation;
 use App\Exports\UserTestDataExport;
 use App\Mail\TestCompletionMail;
+use App\Mail\TestSubmissionAdminMail;
+use App\Jobs\SendTestCompletionEmails;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
@@ -24,8 +28,10 @@ class TestTakingController extends Controller
 {
     /**
      * Get test with questions and options for user to take
+     * Supports language translations via 'lang' parameter (default: 'en')
+     * If translation exists, returns translated_text; otherwise returns question_text
      */
-    public function getTestForUser($testId)
+    public function getTestForUser(Request $request, $testId)
     {
         $test = Test::with(['selectedQuestions.construct.cluster'])
             ->where('is_active', true)
@@ -41,17 +47,68 @@ class TestTakingController extends Controller
         // Get all options (same for every question)
         $options = OptionsModel::orderBy('value')->get();
 
+        // Handle language translation
+        $lang = $request->input('lang', 'en');
+        $languageId = null;
+
+        // Get language ID if not English
+        if ($lang !== 'en') {
+            $language = Language::where(function($query) use ($lang) {
+                $query->whereRaw('LOWER(name) = ?', [strtolower(trim($lang))])
+                      ->orWhere('code', trim($lang));
+            })
+            ->where('is_active', true)
+            ->first();
+
+            if ($language) {
+                $languageId = $language->id;
+            }
+        }
+
+        // If language is specified and found, load translations
+        $translations = [];
+        if ($languageId) {
+            $questionIds = $test->selectedQuestions->pluck('id')->toArray();
+            $translations = QuestionTranslation::whereIn('question_id', $questionIds)
+                ->where('language_id', $languageId)
+                ->where('is_active', true)
+                ->pluck('translated_text', 'question_id')
+                ->map(function ($text) {
+                    // Ensure UTF-8 encoding
+                    if (!mb_check_encoding($text, 'UTF-8')) {
+                        return mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+                    }
+                    return $text;
+                })
+                ->toArray();
+        }
+
         // Format questions with their order
-        $questions = $test->selectedQuestions->map(function ($question) {
-            return [
+        $questions = $test->selectedQuestions->map(function ($question) use ($translations) {
+            $questionData = [
                 'id' => $question->id,
-                'question_text' => $question->question_text,
+                'question_text' => $question->question_text, // Default to English
                 'category' => $question->category,
                 'order_no' => $question->pivot->order_no,
                 'construct_id' => $question->construct_id,
                 'construct_name' => $question->construct->name ?? null,
                 'cluster_id' => $question->pivot->cluster_id ?? null,
             ];
+
+            // Replace with translated text if available
+            if (isset($translations[$question->id])) {
+                $translatedText = $translations[$question->id];
+                // Ensure UTF-8 encoding
+                if (!mb_check_encoding($translatedText, 'UTF-8')) {
+                    $translatedText = mb_convert_encoding($translatedText, 'UTF-8', 'UTF-8');
+                }
+                $questionData['question_text'] = $translatedText;
+                $questionData['is_translated'] = true;
+            } else {
+                $questionData['is_translated'] = false;
+            }
+
+            return $questionData;
         })->sortBy('order_no')->values();
 
         return response()->json([
@@ -66,7 +123,8 @@ class TestTakingController extends Controller
                 'options' => $options,
                 'total_questions' => $questions->count()
             ],
-            'message' => 'Test fetched successfully'
+            'message' => 'Test fetched successfully',
+            'language' => $lang,
         ], 200);
     }
 
@@ -75,8 +133,8 @@ class TestTakingController extends Controller
      */
     public function submitAnswers(Request $request, $testId)
     {
-        // First verify the test exists
-        $test = Test::find($testId);
+        // 1️⃣ Verify Test
+        $test = Test::with('selectedQuestions')->find($testId);
         if (!$test) {
             return response()->json([
                 'status' => false,
@@ -84,9 +142,9 @@ class TestTakingController extends Controller
             ], 404);
         }
 
-        // Get valid question IDs for this test
         $validQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
 
+        // 2️⃣ Validation (KEEP STRICT CONSENT VALIDATION)
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
             'is_consent' => [
@@ -98,11 +156,11 @@ class TestTakingController extends Controller
                     }
                 },
             ],
-            'answers' => 'required|array',
+            'answers' => 'required|array|min:1',
             'answers.*.question_id' => [
                 'required',
                 'integer',
-                function ($attribute, $value, $fail) use ($validQuestionIds, $testId) {
+                function ($attr, $value, $fail) use ($validQuestionIds, $testId) {
                     if (!in_array($value, $validQuestionIds)) {
                         $fail("The question ID {$value} is not part of test {$testId}.");
                     }
@@ -124,159 +182,149 @@ class TestTakingController extends Controller
         $answers = $request->input('answers');
         $isConsent = $request->boolean('is_consent', false);
 
+        // 3️⃣ Preload ALL questions & scoring rules (NO N+1)
+        $questionIds = collect($answers)->pluck('question_id')->unique();
+
+        $questions = QuestionsModel::with('construct.cluster')
+            ->whereIn('id', $questionIds)
+            ->get()
+            ->keyBy('id');
+
+        $scoringRules = ScoringRule::whereIn('question_id', $questionIds)
+            ->get()
+            ->keyBy('question_id');
+
         DB::beginTransaction();
         try {
-            // Create test result with consent
+            // 4️⃣ Create Test Result (FAST)
             $testResult = TestResult::create([
-                'user_id' => $userId,
-                'test_id' => $testId,
-                'status' => 'completed',
+                'user_id'    => $userId,
+                'test_id'    => $testId,
+                'status'     => 'completed',
                 'is_consent' => $isConsent
             ]);
 
-            // Process each answer and calculate scores
-            $userAnswers = [];
+            // 5️⃣ Prepare Batch Insert
+            $answerRows = [];
+            $userAnswersForCalc = [];
+
             $totalScore = 0;
             $questionCount = 0;
 
             foreach ($answers as $answer) {
-                $questionId = $answer['question_id'];
-                $answerValue = $answer['answer_value'];
+                $question = $questions[$answer['question_id']] ?? null;
+                if (!$question) continue;
 
-                $question = QuestionsModel::with('construct.cluster')->find($questionId);
-                if (!$question) {
-                    continue;
-                }
+                $rule = $scoringRules[$answer['question_id']] ?? null;
 
-                // Get scoring rule if exists, otherwise use question category
-                $scoringRule = ScoringRule::where('question_id', $questionId)->first();
-                $category = $scoringRule->category ?? $question->category;
-                $reverseScore = $scoringRule->reverse_score ?? false;
-                $weight = $scoringRule->weight ?? 1.0;
-                
+                $category = $rule->category ?? $question->category;
+                $reverse  = $rule->reverse_score ?? false;
+                $weight   = $rule->weight ?? 1.0;
+
                 // SDB questions are ALWAYS excluded from construct/cluster calculations
-                // Only P and R category questions are included
                 if (strtoupper($category) === 'SDB') {
                     $includeInConstruct = false;
                 } else {
-                $includeInConstruct = $scoringRule->include_in_construct ?? true;
+                    $includeInConstruct = $rule->include_in_construct ?? true;
                 }
 
-                // Calculate final score based on category
-                $finalScore = $this->calculateScore($answerValue, $category, $reverseScore, $weight);
-                $finalScore = round($finalScore, 2); // Round to 2 decimal places
+                $finalScore = round(
+                    $this->calculateScore(
+                        $answer['answer_value'],
+                        $category,
+                        $reverse,
+                        $weight
+                    ),
+                    2
+                );
 
-                // Store user answer
-                $userAnswer = UserAnswer::create([
+                $answerRows[] = [
                     'test_result_id' => $testResult->id,
-                    'question_id' => $questionId,
-                    'answer_value' => $answerValue,
-                    'final_score' => $finalScore
-                ]);
+                    'question_id'    => $answer['question_id'],
+                    'answer_value'   => $answer['answer_value'],
+                    'final_score'    => $finalScore,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
+                ];
 
-                $userAnswers[] = [
-                    'question_id' => $questionId,
-                    'answer_value' => $answerValue,
+                $userAnswersForCalc[] = [
+                    'question_id' => $answer['question_id'],
+                    'answer_value' => $answer['answer_value'],
                     'final_score' => $finalScore,
-                    'category' => $category,
+                    'category'    => $category,
                     'include_in_construct' => $includeInConstruct
                 ];
 
-                // Add to total if included in construct
                 if ($includeInConstruct) {
                     $totalScore += $finalScore;
                     $questionCount++;
                 }
             }
 
-            // Calculate average score
-            $averageScore = $questionCount > 0 ? $totalScore / $questionCount : 0;
-            $averageScore = round($averageScore, 2); // Round to 2 decimal places
-            $totalScore = round($totalScore, 2); // Round to 2 decimal places
+            // 6️⃣ Batch Insert Answers (🔥 BIGGEST PERFORMANCE WIN)
+            DB::table('user_answers')->insert($answerRows);
+
+            // 7️⃣ Calculations
+            $averageScore = $questionCount > 0
+                ? round($totalScore / $questionCount, 2)
+                : 0;
+
+            $totalScore = round($totalScore, 2);
             $averagePercentage = $this->convertToPercentage($averageScore);
 
-            // Calculate cluster and construct scores
-            $clusterScores = $this->calculateClusterScores($userAnswers, $test);
-            $constructScores = $this->calculateConstructScores($userAnswers, $test);
-
-            // Check for SDB flag (if too many SDB questions have high scores)
-            $sdbFlag = $this->checkSDBFlag($userAnswers);
-
-            // Calculate overall category based on average score (using percentage)
+            $clusterScores   = $this->calculateClusterScores($userAnswersForCalc, $test);
+            $constructScores = $this->calculateConstructScores($userAnswersForCalc, $test);
+            $sdbFlag         = $this->checkSDBFlag($userAnswersForCalc);
             $overallCategory = $this->categorizeScore($averageScore);
 
-            // Update test result with calculated scores
-            $testResult->update([
-                'total_score' => $totalScore,
-                'average_score' => $averageScore,
-                'overall_category' => $overallCategory,
-                'cluster_scores' => $clusterScores,
-                'construct_scores' => $constructScores,
-                'sdb_flag' => $sdbFlag
-            ]);
-
-            // Format radar chart data
+            // Format radar chart data (KEEP THIS)
             $radarChartData = $this->formatRadarChartData($clusterScores);
+
+            // 8️⃣ Update Test Result (SHORT LOCK)
+            $testResult->update([
+                'total_score'      => $totalScore,
+                'average_score'    => $averageScore,
+                'overall_category' => $overallCategory,
+                'cluster_scores'   => $clusterScores,
+                'construct_scores' => $constructScores,
+                'sdb_flag'         => $sdbFlag,
+            ]);
 
             DB::commit();
 
-            // Send test completion email to user
-            // Use a separate try-catch to ensure test submission doesn't fail if email fails
-            try {
-                $user = User::find($request->user_id);
-                if ($user && !empty($user->email)) {
-                    \Log::info('=== TEST SUBMISSION: Starting test completion email send process ===', [
-                        'user_id' => $user->id,
-                        'email' => $user->email,
-                        'test_id' => $testId,
-                        'test_result_id' => $testResult->id,
-                    ]);
-
-                    Mail::to($user->email)->send(new TestCompletionMail($user, $test, $testResult));
-                    
-                    \Log::info('=== TEST SUBMISSION: Test completion email sent successfully ===', [
-                        'user_id' => $user->id,
-                        'email' => $user->email,
-                        'test_result_id' => $testResult->id,
-                    ]);
-                } else {
-                    \Log::warning('Cannot send test completion email: user not found or email is empty', [
-                        'user_id' => $request->user_id,
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                // Log the error but don't fail the test submission
-                \Log::error('=== TEST SUBMISSION: Failed to send test completion email ===', [
-                    'user_id' => $request->user_id ?? null,
-                    'test_result_id' => $testResult->id ?? null,
-                    'error' => $e->getMessage(),
-                    'error_code' => $e->getCode(),
-                    'error_class' => get_class($e),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                    'trace' => $e->getTraceAsString()
-                ]);
-            }
+            // 9️⃣ Queue Emails (DO NOT BLOCK USER)
+            // Dispatch email job to queue - emails will be sent asynchronously
+            dispatch(new SendTestCompletionEmails(
+                $testResult->id,
+                $userId,
+                $testId
+            ));
 
             return response()->json([
                 'status' => true,
                 'message' => 'Test submitted successfully',
                 'data' => [
                     'test_result_id' => $testResult->id,
-                    'total_score' => round($totalScore, 2),
-                    'average_score' => round($averageScore, 2),
-                    'average_percentage' => round($averagePercentage, 0), // Rounded to whole number
+                    'total_score' => $totalScore,
+                    'average_score' => $averageScore,
+                    'average_percentage' => round($averagePercentage, 0),
                     'overall_category' => $overallCategory,
                     'cluster_scores' => $clusterScores,
                     'construct_scores' => $constructScores,
                     'sdb_flag' => $sdbFlag,
-                    'radar_chart' => $radarChartData,
-                    'total_questions_answered' => count($answers)
+                    'radar_chart' => $radarChartData, // ✅ KEEP THIS
+                    'total_questions_answered' => count($answerRows)
                 ]
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
+
+            \Log::error('Test submission failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'status' => false,
                 'message' => 'Error submitting test: ' . $e->getMessage()
@@ -944,6 +992,9 @@ private function calculateClusterScores($userAnswers, $test)
             $constructScores = $this->transformScoreCollection($testResult->construct_scores);
             $overallPercentage = $this->calculatePercentageFromMean($testResult->average_score ?? 0);
 
+            // Calculate SDB scores
+            $sdbScores = $this->calculateSDBScores($questionsWithAnswers->toArray());
+
             return [
                 'test_result_id' => $testResult->id,
                 'user' => [
@@ -977,6 +1028,12 @@ private function calculateClusterScores($userAnswers, $test)
                 'questions' => $questionsWithAnswers,
                 'clusters' => $clusterScores,
                 'constructs' => $constructScores,
+                'sdb' => [
+                    'raw' => $sdbScores['raw'],
+                    'percentage' => $sdbScores['percentage'] !== null ? round($sdbScores['percentage'], 0) : null,
+                    'band' => $sdbScores['band'],
+                    'band_name' => $sdbScores['band_name'],
+                ],
                 'sdb_flag' => $testResult->sdb_flag,
                 'status' => $testResult->status,
                 'submitted_at' => optional($testResult->created_at)->toDateTimeString(),
