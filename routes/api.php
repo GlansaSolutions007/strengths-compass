@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\StateController;
 use App\Http\Controllers\Api\AgeGroupController;
 use App\Http\Controllers\Api\SchoolController;
 use App\Http\Controllers\Api\OrganizationController;
+use App\Http\Controllers\Api\LanguageController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -166,6 +167,14 @@ Route::get('countries/{id}/states', [CountryController::class, 'getStates']);
 // States routes (public)
 Route::get('states', [StateController::class, 'index']);
 Route::get('states/{id}', [StateController::class, 'show']);
+
+// Languages CRUD (public for now)
+Route::get('languages', [LanguageController::class, 'index']);
+Route::post('languages', [LanguageController::class, 'store']);
+Route::get('languages/{id}', [LanguageController::class, 'show']);
+Route::put('languages/{id}', [LanguageController::class, 'update']);
+Route::delete('languages/{id}', [LanguageController::class, 'destroy']);
+Route::patch('languages/{id}/toggle-active', [LanguageController::class, 'toggleActive']);
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:

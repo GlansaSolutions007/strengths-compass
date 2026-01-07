@@ -1128,7 +1128,7 @@ private function calculateClusterScores($userAnswers, $test)
     }
 
     /**
-     * Build the raw data sheet rows (with questions, plus cluster/construct scores at the end).
+     * Build the raw data sheet rows (transposed format: questions as rows, users as columns).
      *
      * @param  array<int, array<string, mixed>>  $questionColumns
      * @param  array<int, string>                $clusterNames
@@ -1142,139 +1142,180 @@ private function calculateClusterScores($userAnswers, $test)
         array $constructNames
     ): array
     {
-        $questionCount     = count($questionColumns);
-        $userColumnCount   = count($userHeaders);
-        $clusterCount      = count($clusterNames);
-        $constructCount    = count($constructNames);
-        $sdbColumnCount    = 3; // SDB Raw, SDB Percentage, SDB Band
-        $summaryColsCount  = $clusterCount + $constructCount + $sdbColumnCount;
         $rows = [];
+        
+        // Build user identifier columns with "Name, Gender, Age" format
+        $userColumnHeaders = [];
+        foreach ($results as $result) {
+            $user = $result['user'] ?? [];
+            $name = $user['name'] ?? 'User ' . ($user['id'] ?? '');
+            $gender = $user['gender'] ?? '';
+            $age = $user['age'] ?? '';
+            $userColumnHeaders[] = trim("{$name}, {$gender}, {$age}", ', ');
+        }
 
-        $clusterHeader = array_merge(
-            array_fill(0, $userColumnCount, null),
-            array_map(fn ($column) => 'Cluster : ' . $column['cluster'], $questionColumns)
-        );
+        // First row: Question metadata headers + User names (without Question column)
+        $firstRow = ['Cluster', 'Construct', 'Question Text'];
+        $firstRow = array_merge($firstRow, $userColumnHeaders);
+        $rows[] = $firstRow;
 
-        $constructHeader = array_merge(
-            array_fill(0, $userColumnCount, null),
-            array_map(fn ($column) => 'Construct: ' . $column['construct'], $questionColumns)
-        );
+        // Build a map of question_id => user_id => answer value
+        $questionUserMap = [];
+        foreach ($results as $result) {
+            $userId = $result['user']['id'] ?? null;
+            if (!$userId) continue;
 
-        $questionHeader = array_merge(
-            $this->formatHeaderLabels($userHeaders),
-            array_map(fn ($column) => $column['label'], $questionColumns)
-        );
-
-        // Extra headings for summary scores at the end
-        $clusterSummaryHeading = [];
-        if ($clusterCount > 0) {
-            $clusterSummaryHeading[] = 'Clusters';
-            for ($i = 1; $i < $clusterCount; $i++) {
-                $clusterSummaryHeading[] = null;
+            $questionMap = $this->indexQuestionsById($result['questions'] ?? []);
+            foreach ($questionColumns as $column) {
+                $questionId = $column['question_id'];
+                $question = $questionMap[$questionId] ?? null;
+                $answerValue = data_get($question, 'answer.final_score');
+                
+                // Get category from column metadata (already stored in buildQuestionColumnsMeta)
+                $category = $column['category'] ?? '';
+                
+                if (!isset($questionUserMap[$questionId])) {
+                    $questionUserMap[$questionId] = [
+                        'cluster' => $column['cluster'],
+                        'construct' => $column['construct'],
+                        'question_text' => $column['question_text'],
+                        'category' => $category,
+                        'users' => [],
+                    ];
+                }
+                $questionUserMap[$questionId]['users'][$userId] = $answerValue;
             }
         }
 
-        $constructSummaryHeading = [];
-        if ($constructCount > 0) {
-            $constructSummaryHeading[] = 'Constructs';
-            for ($i = 1; $i < $constructCount; $i++) {
-                $constructSummaryHeading[] = null;
+        // Build rows: one row per question with values for all users
+        // Track previous cluster/construct to only show when they change
+        $previousCluster = null;
+        $previousConstruct = null;
+        
+        foreach ($questionColumns as $column) {
+            $questionId = $column['question_id'];
+            $questionData = $questionUserMap[$questionId] ?? null;
+            
+            if (!$questionData) continue;
+
+            // Combine question text with category (P, R, SDB)
+            $questionText = $questionData['question_text'] ?? '';
+            $category = $questionData['category'] ?? '';
+            $questionTextWithCategory = $questionText;
+            if ($category) {
+                $questionTextWithCategory = "{$questionText} ({$category})";
             }
+
+            // Only show cluster/construct when they change
+            $currentCluster = $column['cluster'];
+            $currentConstruct = $column['construct'];
+            
+            $clusterValue = ($currentCluster !== $previousCluster) ? $currentCluster : '';
+            $constructValue = ($currentConstruct !== $previousConstruct) ? $currentConstruct : '';
+
+            $row = [
+                $clusterValue,
+                $constructValue,
+                $questionTextWithCategory,
+            ];
+
+            // Add answer values for each user in order
+            foreach ($results as $result) {
+                $userId = $result['user']['id'] ?? null;
+                $row[] = $questionData['users'][$userId] ?? null;
+            }
+
+            $rows[] = $row;
+            
+            // Update previous values
+            $previousCluster = $currentCluster;
+            $previousConstruct = $currentConstruct;
         }
 
-        $sdbSummaryHeading = ['SDB', null, null]; // SDB Raw, SDB Percentage, SDB Band
+        // Add summary rows: Clusters, Constructs, SDB
+        $rows[] = []; // Empty row separator
 
-        // 1) Cluster row over question columns, then "Clusters"/"Constructs"/"SDB" headings at the far right
-        $rows[] = array_merge(
-            $clusterHeader,
-            $clusterSummaryHeading,
-            $constructSummaryHeading,
-            $sdbSummaryHeading
-        );
+        // Cluster summary row (3 columns: Cluster, Construct, Question Text)
+        $clusterRow = ['Clusters', '', ''];
+        foreach ($results as $result) {
+            $clusterItems = data_get($result, 'clusters', []);
+            $clusterValue = null;
+            if (!empty($clusterNames) && isset($clusterNames[0])) {
+                $entry = $clusterItems[$clusterNames[0]] ?? null;
+                $clusterValue = $entry ? $this->extractPercentageScore($entry) : null;
+            }
+            $clusterRow[] = $clusterValue;
+        }
+        $rows[] = $clusterRow;
 
-        // 2) Construct row over question columns, then each cluster/construct name as column labels, then SDB column labels
-        $rows[] = array_merge(
-            $constructHeader,
-            $clusterNames,
-            $constructNames,
-            ['SDB Raw', 'SDB %', 'SDB Band']
-        );
+        // Individual cluster rows
+        foreach ($clusterNames as $clusterName) {
+            $clusterRow = ['', $clusterName, ''];
+            foreach ($results as $result) {
+                $clusterItems = data_get($result, 'clusters', []);
+                $entry = $clusterItems[$clusterName] ?? null;
+                $clusterRow[] = $entry ? $this->extractPercentageScore($entry) : null;
+            }
+            $rows[] = $clusterRow;
+        }
 
-        // 3) Question labels row, with empty cells in the summary section
-        $rows[] = array_merge(
-            $questionHeader,
-            array_fill(0, $summaryColsCount, null)
-        );
+        $rows[] = []; // Empty row separator
+
+        // Construct summary row
+        $constructRow = ['Constructs', '', ''];
+        foreach ($results as $result) {
+            $constructItems = data_get($result, 'constructs', []);
+            $constructValue = null;
+            if (!empty($constructNames) && isset($constructNames[0])) {
+                $entry = $constructItems[$constructNames[0]] ?? null;
+                $constructValue = $entry ? $this->extractPercentageScore($entry) : null;
+            }
+            $constructRow[] = $constructValue;
+        }
+        $rows[] = $constructRow;
+
+        // Individual construct rows
+        foreach ($constructNames as $constructName) {
+            $constructRow = ['', $constructName, ''];
+            foreach ($results as $result) {
+                $constructItems = data_get($result, 'constructs', []);
+                $entry = $constructItems[$constructName] ?? null;
+                $constructRow[] = $entry ? $this->extractPercentageScore($entry) : null;
+            }
+            $rows[] = $constructRow;
+        }
+
+        $rows[] = []; // Empty row separator
+
+        // SDB rows
+        $sdbRawRow = ['SDB', 'Raw', ''];
+        $sdbPercentRow = ['', 'Percentage', ''];
+        $sdbBandRow = ['', 'Band', ''];
 
         foreach ($results as $result) {
-            $userRow = $this->formatUserInfoValues($result['user'] ?? [], $userHeaders);
-            $questionMap = $this->indexQuestionsById($result['questions'] ?? []);
-
-            $textRow = [];
-            $scoreRow = [];
-
-            foreach ($questionColumns as $column) {
-                $question = $questionMap[$column['question_id']] ?? null;
-                $textRow[] = $question['question_text'] ?? $column['question_text'];
-                $scoreRow[] = data_get($question, 'answer.final_score');
-            }
-
-            // Summary scores for this user
-            $clusterValues = [];
-            $clusterItems  = data_get($result, 'clusters', []);
-            foreach ($clusterNames as $name) {
-                $entry = $clusterItems[$name] ?? null;
-                $clusterValues[] = $entry ? $this->extractPercentageScore($entry) : null;
-            }
-
-            $constructValues = [];
-            $constructItems  = data_get($result, 'constructs', []);
-            foreach ($constructNames as $name) {
-                $entry = $constructItems[$name] ?? null;
-                $constructValues[] = $entry ? $this->extractPercentageScore($entry) : null;
-            }
-
-            // Calculate SDB scores
             try {
                 $questions = $result['questions'] ?? [];
-                // Convert Collection to array if needed
                 if ($questions instanceof Collection) {
                     $questions = $questions->toArray();
                 }
                 $sdbScores = $this->calculateSDBScores($questions);
-                $sdbValues = [
-                    $sdbScores['raw'],
-                    $sdbScores['percentage'] !== null ? round($sdbScores['percentage'], 0) : null,
-                    $sdbScores['band_name'],
-                ];
+                $sdbRawRow[] = $sdbScores['raw'];
+                $sdbPercentRow[] = $sdbScores['percentage'] !== null ? round($sdbScores['percentage'], 0) : null;
+                $sdbBandRow[] = $sdbScores['band_name'];
             } catch (\Exception $e) {
-                // If SDB calculation fails, use null values
                 \Log::error('SDB calculation error', [
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
-                $sdbValues = [null, null, null];
+                $sdbRawRow[] = null;
+                $sdbPercentRow[] = null;
+                $sdbBandRow[] = null;
             }
-
-            // User + question text + empty summary cells
-            $rows[] = array_merge(
-                $userRow,
-                $textRow,
-                array_fill(0, $summaryColsCount, null)
-            );
-
-            // Score row (only scores + summary percentages + SDB values)
-            $rows[] = array_merge(
-                array_fill(0, $userColumnCount, null),
-                $scoreRow,
-                $clusterValues,
-                $constructValues,
-                $sdbValues
-            );
-
-            // Blank separator row
-            $rows[] = array_fill(0, $userColumnCount + $questionCount + $summaryColsCount, null);
         }
+
+        $rows[] = $sdbRawRow;
+        $rows[] = $sdbPercentRow;
+        $rows[] = $sdbBandRow;
 
         return $rows;
     }
@@ -1408,6 +1449,7 @@ private function calculateClusterScores($userAnswers, $test)
                         'construct' => $constructName,
                         'question_id' => $meta['question_id'],
                         'question_text' => $meta['question_text'],
+                        'category' => $meta['category'] ?? '',
                         'label' => sprintf('Q%d(%s)', $questionNumber, $meta['category']),
                     ];
                     $questionNumber++;
