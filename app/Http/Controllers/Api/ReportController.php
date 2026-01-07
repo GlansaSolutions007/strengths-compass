@@ -362,6 +362,83 @@ class ReportController extends Controller
     }
 
     /**
+     * Generate and download short PDF report (clusters and constructs with bands only)
+     */
+    public function downloadShortPdf($testResultId)
+    {
+        $testResult = TestResult::with([
+            'user',
+            'test.clusters.constructs',
+        ])->find($testResultId);
+
+        if (!$testResult) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'Test result not found',
+            ], 404);
+        }
+
+        $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
+        $clusterDetails = $this->buildClusterDetails($testResult);
+        $constructDetails = $this->buildConstructDetails($clusterDetails);
+
+        // Calculate construct scores with bands
+        $constructScoresWithBands = [];
+        if (!empty($constructDetails) && !empty($testResult->construct_scores)) {
+            foreach ($constructDetails as $construct) {
+                $constructName = $construct['name'];
+                $constructScore = $testResult->construct_scores[$constructName] ?? null;
+                
+                if ($constructScore !== null) {
+                    $average = is_array($constructScore) ? ($constructScore['average'] ?? 0) : (float) $constructScore;
+                    $percentage = $this->convertScoreToPercentage($average);
+                    $band = $this->getStrengthCategory($percentage);
+                    
+                    $constructScoresWithBands[] = array_merge($construct, [
+                        'percentage' => $percentage,
+                        'band' => $band,
+                    ]);
+                }
+            }
+        }
+
+        // Prepare data for PDF
+        $data = [
+            'testResult' => $testResult,
+            'user' => $testResult->user,
+            'test' => $testResult->test,
+            'clusterInsights' => $clusterInsights,
+            'constructDetails' => $constructScoresWithBands,
+        ];
+
+        // Generate PDF using container binding
+        try {
+            $pdf = App::make('dompdf.wrapper');
+            $pdf->loadView('reports.short-report', $data);
+            $pdf->setPaper('a4', 'portrait');
+            $pdf->setOption('enable-local-file-access', true);
+            $pdf->setOption('isHtml5ParserEnabled', true);
+            $pdf->setOption('isRemoteEnabled', false);
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'PDF library not available. Please ensure barryvdh/laravel-dompdf is installed and run: composer dump-autoload',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        // Generate filename
+        $filename = 'short-report-' . $testResult->id . '-' . now()->format('Y-m-d') . '.pdf';
+
+        // Return PDF download response
+        return response($pdf->output(), 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+    }
+
+    /**
      * Update report content (summary, recommendations, etc.)
      */
     public function updateReportContent(Request $request, $testResultId)

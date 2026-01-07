@@ -156,6 +156,7 @@ Route::get('test-results-comprehensive/export', [TestTakingController::class, 'd
 Route::get('test-results/{testResultId}/report', [ReportController::class, 'getReport']); // Get report data for a test result
 Route::post('test-results/{testResultId}/report/pdf', [ReportController::class, 'storePdf']); // Store PDF file from frontend
 Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report
+Route::get('test-results/{testResultId}/report/pdf/short', [ReportController::class, 'downloadShortPdf']); // Download short PDF report (clusters and constructs with bands)
 Route::get('test-results/{testResultId}/report/view', [ReportController::class, 'viewPdf']); // View PDF report in browser
 Route::put('test-results/{testResultId}/report', [ReportController::class, 'updateReportContent']); // Update report summary/recommendations
 
