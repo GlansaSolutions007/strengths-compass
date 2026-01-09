@@ -11,7 +11,7 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://strengthcompass.glansa.in',
+        'https://strengthcompass.cvmacts.org',
         'http://localhost:5173',
         'http://localhost:5174',
         'https://assessments.axiscompass.co/'
