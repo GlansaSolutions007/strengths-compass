@@ -798,6 +798,8 @@ private function calculateClusterScores($userAnswers, $test)
         $validator = Validator::make($request->all(), [
             'from_date' => 'nullable|date',
             'to_date' => 'nullable|date',
+            'age_group_id' => 'nullable|exists:age_groups,id',
+            'test_id' => 'nullable|exists:tests,id',
         ]);
 
         if ($validator->fails()) {
@@ -811,8 +813,9 @@ private function calculateClusterScores($userAnswers, $test)
         $fromDate = $request->input('from_date');
         $toDate = $request->input('to_date');
         $ageGroupId = $request->input('age_group_id');
+        $testId = $request->input('test_id');
 
-        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
+        $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId, $testId);
         $formattedResults = $this->transformTestResults($testResults);
 
         return response()->json([
@@ -823,6 +826,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'from_date' => $fromDate,
                 'to_date' => $toDate,
                 'age_group_id' => $ageGroupId,
+                'test_id' => $testId,
             ],
             'message' => 'All test results fetched successfully'
         ], 200);
@@ -839,6 +843,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'from_date' => 'nullable|date',
                 'to_date' => 'nullable|date',
                 'age_group_id' => 'required|exists:age_groups,id',
+                'test_id' => 'nullable|exists:tests,id',
             ]);
 
             if ($validator->fails()) {
@@ -852,8 +857,9 @@ private function calculateClusterScores($userAnswers, $test)
             $fromDate = $request->input('from_date');
             $toDate = $request->input('to_date');
             $ageGroupId = $request->input('age_group_id');
+            $testId = $request->input('test_id');
 
-            $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId);
+            $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId, $testId);
             $formattedResults = $this->transformTestResults($testResults);
 
             $filteredResults = $formattedResults->filter(function ($result) {
@@ -914,7 +920,7 @@ private function calculateClusterScores($userAnswers, $test)
     /**
      * Fetch test results with required relationships and optional date filters.
      */
-    protected function fetchTestResultsWithRelations(?string $fromDate, ?string $toDate, ?int $ageGroupId = null): Collection
+    protected function fetchTestResultsWithRelations(?string $fromDate, ?string $toDate, ?int $ageGroupId = null, ?int $testId = null): Collection
     {
         $query = TestResult::with([
             'user',
@@ -929,6 +935,11 @@ private function calculateClusterScores($userAnswers, $test)
 
         if ($toDate) {
             $query->where('created_at', '<=', Carbon::parse($toDate)->endOfDay());
+        }
+
+        // Filter by test ID if provided
+        if ($testId) {
+            $query->where('test_id', $testId);
         }
 
         // Filter by age group if provided (from session)
