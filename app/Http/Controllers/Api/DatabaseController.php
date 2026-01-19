@@ -72,42 +72,163 @@ class DatabaseController extends Controller
     }
 
     /**
-     * Export MySQL database using mysqldump
+     * Export MySQL database using mysqldump or mariadb-dump
      */
     private function exportMySQL(): ?string
     {
         $config = config('database.connections.mysql');
         
+        // Use 127.0.0.1 instead of localhost to force IPv4 and avoid IPv6 issues
         $host = $config['host'] ?? '127.0.0.1';
+        if (strtolower($host) === 'localhost') {
+            $host = '127.0.0.1';
+        }
+        
         $port = $config['port'] ?? '3306';
         $database = $config['database'] ?? '';
         $username = $config['username'] ?? '';
         $password = $config['password'] ?? '';
+        $socket = $config['unix_socket'] ?? '';
 
         if (empty($database) || empty($username)) {
             throw new \Exception('MySQL database configuration is incomplete');
         }
 
-        // Build mysqldump command
-        $command = sprintf(
-            'mysqldump --host=%s --port=%s --user=%s --password=%s --single-transaction --routines --triggers %s',
-            escapeshellarg($host),
-            escapeshellarg($port),
-            escapeshellarg($username),
-            escapeshellarg($password),
-            escapeshellarg($database)
-        );
+        // Try mariadb-dump first (for MariaDB), then fallback to mysqldump
+        $dumpCommands = ['mariadb-dump', 'mysqldump'];
+        $lastError = null;
 
-        // Execute mysqldump
-        $process = Process::fromShellCommandline($command);
-        $process->setTimeout(300); // 5 minutes timeout
-        $process->run();
+        foreach ($dumpCommands as $dumpCommand) {
+            try {
+                // Check if command exists
+                $checkProcess = Process::fromShellCommandline("which {$dumpCommand}");
+                $checkProcess->run();
+                
+                if (!$checkProcess->isSuccessful()) {
+                    continue; // Try next command
+                }
 
-        if (!$process->isSuccessful()) {
-            throw new ProcessFailedException($process);
+                // Build dump command
+                // Use environment variable for password to avoid shell escaping issues
+                $env = [
+                    'MYSQL_PWD' => $password,
+                ];
+
+                $commandParts = [
+                    $dumpCommand,
+                    '--host=' . escapeshellarg($host),
+                    '--port=' . escapeshellarg($port),
+                    '--user=' . escapeshellarg($username),
+                    '--single-transaction',
+                    '--routines',
+                    '--triggers',
+                    '--no-tablespaces', // Avoid permission issues
+                ];
+
+                // Use socket if available (more reliable than TCP)
+                if (!empty($socket) && file_exists($socket)) {
+                    $commandParts[] = '--socket=' . escapeshellarg($socket);
+                    // Remove host/port when using socket
+                    $commandParts = array_filter($commandParts, function($part) {
+                        return substr($part, 0, 7) !== '--host=' && substr($part, 0, 7) !== '--port=';
+                    });
+                }
+
+                $commandParts[] = escapeshellarg($database);
+
+                $command = implode(' ', $commandParts);
+
+                // Execute dump command
+                $process = Process::fromShellCommandline($command);
+                $process->setEnv($env);
+                $process->setTimeout(300); // 5 minutes timeout
+                $process->run();
+
+                if ($process->isSuccessful()) {
+                    return $process->getOutput();
+                }
+
+                $lastError = $process->getErrorOutput();
+                
+            } catch (\Exception $e) {
+                $lastError = $e->getMessage();
+                continue; // Try next command
+            }
         }
 
-        return $process->getOutput();
+        // If all commands failed, try programmatic export as fallback
+        \Log::warning('MySQL dump commands failed, attempting programmatic export', [
+            'error' => $lastError
+        ]);
+
+        return $this->exportMySQLProgrammatic($config);
+    }
+
+    /**
+     * Export MySQL database programmatically using Laravel DB facade
+     * This is a fallback when mysqldump/mariadb-dump is not available
+     */
+    private function exportMySQLProgrammatic(array $config): string
+    {
+        $sql = "-- MySQL Database Dump\n";
+        $sql .= "-- Generated: " . now()->toDateTimeString() . "\n";
+        $sql .= "-- Note: This is a programmatic export. Some features may differ from mysqldump.\n\n";
+        $sql .= "SET SQL_MODE = \"NO_AUTO_VALUE_ON_ZERO\";\n";
+        $sql .= "START TRANSACTION;\n";
+        $sql .= "SET time_zone = \"+00:00\";\n\n";
+
+        // Get all tables
+        $tables = DB::select('SHOW TABLES');
+        $tableKey = 'Tables_in_' . $config['database'];
+
+        foreach ($tables as $table) {
+            // Handle dynamic property access safely
+            $tableArray = (array) $table;
+            $tableName = $tableArray[$tableKey] ?? reset($tableArray);
+            
+            // Get table structure
+            $createTable = DB::select("SHOW CREATE TABLE `{$tableName}`");
+            if (!empty($createTable)) {
+                $createTableArray = (array) $createTable[0];
+                $createTableSql = $createTableArray['Create Table'] ?? null;
+                if ($createTableSql) {
+                    $sql .= "-- Table structure for table `{$tableName}`\n";
+                    $sql .= "DROP TABLE IF EXISTS `{$tableName}`;\n";
+                    $sql .= $createTableSql . ";\n\n";
+                }
+            }
+
+            // Get table data
+            $rows = DB::table($tableName)->get();
+            if ($rows->count() > 0) {
+                $sql .= "-- Dumping data for table `{$tableName}`\n";
+                foreach ($rows as $row) {
+                    $columns = array_keys((array)$row);
+                    $values = array_map(function ($value) {
+                        if ($value === null) {
+                            return 'NULL';
+                        }
+                        if (is_numeric($value)) {
+                            return $value;
+                        }
+                        // Escape single quotes and backslashes
+                        return "'" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
+                    }, array_values((array)$row));
+
+                    $sql .= sprintf(
+                        "INSERT INTO `%s` (`%s`) VALUES (%s);\n",
+                        $tableName,
+                        implode('`, `', $columns),
+                        implode(', ', $values)
+                    );
+                }
+                $sql .= "\n";
+            }
+        }
+
+        $sql .= "COMMIT;\n";
+
+        return $sql;
     }
 
     /**
