@@ -78,7 +78,7 @@ class UserController extends Controller
         $query->with(['ageGroup', 'school', 'organization']);
 
         // $users = $query->orderByDesc('id')->paginate($perPage);
-        $users = $query->orderByDesc('id');
+        $users = $query->orderByDesc('id')->get();
 
         return response()->json([
             'users' => $users,
