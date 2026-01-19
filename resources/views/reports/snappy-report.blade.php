@@ -681,6 +681,15 @@
                     $summaryText = $defaultSummary;
                 @endphp
                 {{ $summaryText }}
+                
+                @if(isset($sdbPercentage) && $sdbPercentage !== null && $sdbPercentage >= 90)
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #e9ecef;">
+                        <p style="font-size: 10.5pt; color: #667eea; font-weight: 600; margin-bottom: 8px;">[Guidance]:</p>
+                        <p style="font-size: 10.5pt; color: #4a5568; line-height: 1.6; font-style: italic; margin: 0;">
+                            "This profile may benefit from further exploration to distinguish between current strengths and aspirational qualities."
+                        </p>
+                    </div>
+                @endif
             </div>
         </div>
 

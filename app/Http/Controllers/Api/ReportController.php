@@ -912,6 +912,9 @@ class ReportController extends Controller
                    trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                    'user';
 
+        // Calculate SDB percentage
+        $sdbPercentage = $this->calculateSDBPercentage($testResult);
+
         $data = [
             'user'                       => $testResult->user,
             'testResult'                 => $testResult,
@@ -925,6 +928,7 @@ class ReportController extends Controller
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $this->generateRadarChartBase64($clusterScores, 'cluster'),
             'radarConstructChartBase64'  => $this->generateRadarChartBase64($constructScores, 'construct'),
+            'sdbPercentage'              => $sdbPercentage,
         ];
 
         /* -----------------------------------------
@@ -1255,6 +1259,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                    trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                    'user';
 
+        // Calculate SDB percentage
+        $sdbPercentage = $this->calculateSDBPercentage($testResult);
+
         $data = [
             'user'                       => $testResult->user,
             'testResult'                 => $testResult,
@@ -1268,6 +1275,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $this->generateRadarChartBase64($clusterScores, 'cluster'),
             'radarConstructChartBase64'  => $this->generateRadarChartBase64($constructScores, 'construct'),
+            'sdbPercentage'              => $sdbPercentage,
         ];
 
         /* -----------------------------------------
@@ -1606,6 +1614,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                        trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                        'user';
 
+            // Calculate SDB percentage
+            $sdbPercentage = $this->calculateSDBPercentage($testResult);
+
             $data = [
                 'user'                       => $testResult->user,
                 'testResult'                 => $testResult,
@@ -1619,6 +1630,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 'logoBase64'                 => $logoBase64,
                 'radarClusterChartBase64'    => $this->generateRadarChartBase64($clusterScores, 'cluster'),
                 'radarConstructChartBase64'  => $this->generateRadarChartBase64($constructScores, 'construct'),
+                'sdbPercentage'              => $sdbPercentage,
             ];
 
             /* -----------------------------------------
