@@ -23,7 +23,8 @@ class ReportController extends Controller
         $testResult = TestResult::with([
             'user',
             'test.clusters.constructs',
-            'report'
+            'report',
+            'answers.question'
         ])->find($testResultId);
 
         if (!$testResult) {
@@ -54,10 +55,18 @@ class ReportController extends Controller
         $enrichedClusterScores = $this->enrichClusterScores($testResult);
         $enrichedConstructScores = $this->enrichConstructScores($testResult);
 
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+
         // Get test result as array and update with enriched scores
         $testResultData = $testResult->toArray();
         $testResultData['cluster_scores'] = $enrichedClusterScores;
         $testResultData['construct_scores'] = $enrichedConstructScores;
+        // Add SDB values to test_result
+        $testResultData['sdb_flag'] = $testResult->sdb_flag;
+        $testResultData['sdb_raw_score'] = $sdbScores['raw'];
+        $testResultData['sdb_percentage'] = $sdbScores['percentage'];
+        $testResultData['sdb_band'] = $sdbScores['band'];
         // Remove test relationship from test_result
         unset($testResultData['test']);
 
@@ -1748,6 +1757,162 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             return [
                 'success' => false,
                 'message' => 'Failed to send PDF via email: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Calculate SDB (Social Desirability Bias) scores for a test result
+     * Returns: ['raw' => float, 'percentage' => float, 'band' => string, 'band_name' => string]
+     */
+    private function calculateSDBScores(TestResult $testResult): array
+    {
+        // Load answers with questions if not already loaded
+        if (!$testResult->relationLoaded('answers')) {
+            $testResult->load('answers.question');
+        }
+
+        // Format questions with answers similar to getTestResultAnswers
+        $questions = $testResult->answers->map(function ($answer) {
+            $question = $answer->question;
+            if (!$question) {
+                return null;
+            }
+
+            return [
+                'question_id' => $question->id,
+                'category' => $question->category,
+                'answer' => [
+                    'answer_value' => $answer->answer_value,
+                ],
+            ];
+        })->filter()->values()->toArray();
+
+        // Ensure it's an array
+        if (!is_array($questions) || empty($questions)) {
+            return [
+                'raw' => null,
+                'percentage' => null,
+                'band' => null,
+                'band_name' => null,
+            ];
+        }
+
+        // Filter SDB questions
+        $sdbQuestions = array_filter($questions, function ($question) {
+            return isset($question['category']) && strtoupper($question['category']) === 'SDB';
+        });
+        
+        // Reset array keys to ensure sequential indexing
+        $sdbQuestions = array_values($sdbQuestions);
+
+        if (empty($sdbQuestions)) {
+            return [
+                'raw' => null,
+                'percentage' => null,
+                'band' => null,
+                'band_name' => null,
+            ];
+        }
+
+        // Sum all SDB answer values (not final_score, as SDB uses direct scoring)
+        $sdbSum = 0;
+        $sdbCount = 0;
+        
+        foreach ($sdbQuestions as $question) {
+            $answerValue = data_get($question, 'answer.answer_value');
+            if ($answerValue !== null && is_numeric($answerValue)) {
+                $sdbSum += (float) $answerValue;
+                $sdbCount++;
+            }
+        }
+
+        if ($sdbCount === 0) {
+            return [
+                'raw' => null,
+                'percentage' => null,
+                'band' => null,
+                'band_name' => null,
+            ];
+        }
+
+        // Calculate raw score (average)
+        $sdbRaw = $sdbSum / $sdbCount;
+        $sdbRaw = round($sdbRaw, 2);
+
+        // Calculate percentage: ((raw - 1) / 4) * 100
+        $sdbPercentage = $this->calculatePercentageFromMean($sdbRaw);
+
+        // Determine band based on raw score
+        $band = $this->determineSDBBand($sdbRaw, $sdbPercentage);
+
+        return [
+            'raw' => $sdbRaw,
+            'percentage' => $sdbPercentage,
+            'band' => is_array($band) ? ($band['band'] ?? null) : null,
+            'band_name' => is_array($band) ? ($band['name'] ?? null) : null,
+        ];
+    }
+
+    /**
+     * Calculate percentage from mean score: ((raw - 1) / 4) * 100
+     */
+    private function calculatePercentageFromMean($meanScore)
+    {
+        if ($meanScore <= 0) {
+            return 0;
+        }
+        
+        // Step 1: Subtract 1
+        $step1 = $meanScore - 1;
+        
+        // Step 2: Divide by 4
+        $step2 = $step1 / 4;
+        
+        // Step 3: Convert to percentage and round
+        $percentage = round($step2 * 100);
+        
+        return max(0, min(100, (int) $percentage));
+    }
+
+    /**
+     * Determine SDB band based on raw score and percentage
+     * GREEN (Authentic): 1.0-3.8 (0-70%)
+     * AMBER (Managing): 3.81-4.4 (71-85%)
+     * RED (Idealized): 4.41-5.0 (86-100%)
+     */
+    private function determineSDBBand($rawScore, $percentage): array
+    {
+        // Handle null or invalid values
+        if ($rawScore === null || !is_numeric($rawScore)) {
+            return [
+                'band' => null,
+                'name' => null,
+            ];
+        }
+
+        $rawScore = (float) $rawScore;
+
+        if ($rawScore >= 1.0 && $rawScore <= 3.8) {
+            return [
+                'band' => 'GREEN',
+                'name' => 'GREEN (Authentic)',
+            ];
+        } elseif ($rawScore >= 3.81 && $rawScore <= 4.4) {
+            return [
+                'band' => 'AMBER',
+                'name' => 'AMBER (Managing)',
+            ];
+        } elseif ($rawScore >= 4.41 && $rawScore <= 5.0) {
+            return [
+                'band' => 'RED',
+                'name' => 'RED (Idealized)',
+            ];
+        } else {
+            // Fallback for edge cases
+            return [
+                'band' => 'UNKNOWN',
+                'name' => 'UNKNOWN',
             ];
         }
     }
