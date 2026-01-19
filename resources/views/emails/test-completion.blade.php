@@ -97,7 +97,7 @@
             
             <p>Congratulations! You have successfully completed the test. Thank you for taking the time to complete the assessment.</p>
 
-            <p>Our team is currently reviewing your results, and you can expect your detailed report within the next 24 hours.</p>
+            <p>Our team is currently reviewing your results, and you will get your detailed results in 12 hours.</p>
             
             <div class="test-info">
                 <h3>Test Details</h3>
