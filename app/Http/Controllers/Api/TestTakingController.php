@@ -424,13 +424,15 @@ private function calculateClusterScores($userAnswers, $test)
             
             $cluster = $test->clusters->find($clusterId);
             $clusterName = $cluster ? $cluster->name : "Cluster {$clusterId}";
+            $clusterArea = $cluster ? $cluster->area : null;
             
             $clusterScores[$clusterName] = [
                 'total' => round($total, 2),
                 'average' => $average,
                 'percentage' => $percentage,
                 'count' => $count,
-                'category' => $this->categorizeScore($average)
+                'category' => $this->categorizeScore($average),
+                'area' => $clusterArea
             ];
         }
 
@@ -1099,6 +1101,7 @@ private function calculateClusterScores($userAnswers, $test)
                     'percentage' => $percentage,
                     'count' => $data['count'] ?? null,
                     'category' => $data['category'] ?? $this->categorizeByPercentage($percentage),
+                    'area' => $data['area'] ?? null,
                 ];
             } else {
                 $meanScore = (float) $data;
@@ -1111,6 +1114,7 @@ private function calculateClusterScores($userAnswers, $test)
                     'percentage' => $percentage,
                     'count' => null,
                     'category' => $this->categorizeByPercentage($percentage),
+                    'area' => null,
                 ];
             }
         }
