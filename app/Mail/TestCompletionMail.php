@@ -60,6 +60,10 @@ class TestCompletionMail extends Mailable
      */
     public function attachments(): array
     {
+        // PDF attachment temporarily disabled
+        return [];
+        
+        /* 
         try {
             // Generate short PDF report
             $pdf = App::make('dompdf.wrapper');
@@ -128,6 +132,7 @@ class TestCompletionMail extends Mailable
             ]);
             return [];
         }
+        */
     }
 
     /**
