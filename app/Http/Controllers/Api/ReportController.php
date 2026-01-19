@@ -912,8 +912,9 @@ class ReportController extends Controller
                    trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                    'user';
 
-        // Calculate SDB percentage
-        $sdbPercentage = $this->calculateSDBPercentage($testResult);
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
 
         $data = [
             'user'                       => $testResult->user,
@@ -1259,8 +1260,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                    trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                    'user';
 
-        // Calculate SDB percentage
-        $sdbPercentage = $this->calculateSDBPercentage($testResult);
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
 
         $data = [
             'user'                       => $testResult->user,
@@ -1614,8 +1616,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                        trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                        'user';
 
-            // Calculate SDB percentage
-            $sdbPercentage = $this->calculateSDBPercentage($testResult);
+            // Calculate SDB scores
+            $sdbScores = $this->calculateSDBScores($testResult);
+            $sdbPercentage = $sdbScores['percentage'] ?? null;
 
             $data = [
                 'user'                       => $testResult->user,
