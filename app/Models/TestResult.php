@@ -71,6 +71,7 @@ class TestResult extends Model
                     'percentage' => isset($scores['percentage']) ? round((float) $scores['percentage'], 0) : null, // Rounded to whole number
                     'count' => $scores['count'] ?? 0,
                     'category' => $scores['category'] ?? null,
+                    'area' => $scores['area'] ?? null,
                 ];
             } else {
                 // Handle legacy format where cluster_scores might be a simple key-value

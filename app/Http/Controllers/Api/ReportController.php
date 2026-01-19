@@ -727,6 +727,7 @@ class ReportController extends Controller
         foreach ($clusters as $cluster) {
             $clusterDetailsMap[$cluster->name] = [
                 'description' => $cluster->description,
+                'area' => $cluster->area ?? null,
                 'high_behaviour' => $cluster->high_behaviour ?? $cluster->high_behavior ?? null,
                 'medium_behaviour' => $cluster->medium_behaviour ?? $cluster->medium_behavior ?? null,
                 'low_behaviour' => $cluster->low_behaviour ?? $cluster->low_behavior ?? null,
@@ -759,6 +760,7 @@ class ReportController extends Controller
 
                 $enriched[$clusterName] = array_merge($scoreData, [
                     'description' => $clusterInfo['description'] ?? null,
+                    'area' => $clusterInfo['area'] ?? ($scoreData['area'] ?? null),
                     'behaviour' => $behaviour,
                 ]);
             } else {
