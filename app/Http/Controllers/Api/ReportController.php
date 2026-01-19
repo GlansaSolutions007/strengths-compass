@@ -861,7 +861,7 @@ class ReportController extends Controller
      * 
      * @param int $testResultId
      * @param Request $request
-     * @return \Illuminate\Http\Response
+     * @return \Illuminate\Http\Response|\Illuminate\Http\JsonResponse
      */
     public function downloadSnappyPdf($testResultId, Request $request)
     {

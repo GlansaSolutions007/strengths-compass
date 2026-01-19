@@ -47,12 +47,18 @@ class QuestionsController extends Controller
 
         $questions = $query->orderBy('order_no')->get();
 
-        // Handle language translation
-        $lang = $request->input('lang', 'en');
-        $languageId = null;
+        // Load all translations for all questions
+        $questionIds = $questions->pluck('id')->toArray();
+        $allTranslations = QuestionTranslation::whereIn('question_id', $questionIds)
+            ->where('is_active', true)
+            ->with('language')
+            ->get()
+            ->groupBy('question_id');
 
-        // Get language ID if not English
-        if ($lang !== 'en') {
+        // Handle language filter (if lang parameter is provided, show only that language)
+        $lang = $request->input('lang', null);
+        $languageId = null;
+        if ($lang && $lang !== 'en') {
             $language = Language::where(function($query) use ($lang) {
                 $query->whereRaw('LOWER(name) = ?', [strtolower(trim($lang))])
                       ->orWhere('code', trim($lang));
@@ -65,40 +71,50 @@ class QuestionsController extends Controller
             }
         }
 
-        // If language is specified and found, load translations
-        if ($languageId) {
-            $questionIds = $questions->pluck('id')->toArray();
-            $translations = QuestionTranslation::whereIn('question_id', $questionIds)
-                ->where('language_id', $languageId)
-                ->where('is_active', true)
-                ->pluck('translated_text', 'question_id')
-                ->map(function ($text) {
-                    // Ensure UTF-8 encoding
-                    if (!mb_check_encoding($text, 'UTF-8')) {
-                        return mb_convert_encoding($text, 'UTF-8', 'UTF-8');
-                    }
-                    return $text;
-                })
-                ->toArray();
-        } else {
-            $translations = [];
-        }
-
-        // Map questions with translations
-        $questions = $questions->map(function ($question) use ($translations) {
+        // Map questions with all translations
+        $questions = $questions->map(function ($question) use ($allTranslations, $languageId) {
             $questionArray = $question->toArray();
             
-            // Replace question_text with translated_text if translation exists
-            if (isset($translations[$question->id])) {
-                $translatedText = $translations[$question->id];
+            // Get translations for this question
+            $translations = $allTranslations->get($question->id, collect());
+            
+            // Format translations with language info
+            $translationsArray = $translations->map(function ($translation) {
+                $text = $translation->translated_text;
                 // Ensure UTF-8 encoding
-                if (!mb_check_encoding($translatedText, 'UTF-8')) {
-                    $translatedText = mb_convert_encoding($translatedText, 'UTF-8', 'UTF-8');
+                if (!mb_check_encoding($text, 'UTF-8')) {
+                    $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
                 }
-                $questionArray['question_text'] = $translatedText;
-                $questionArray['is_translated'] = true;
+                return [
+                    'id' => $translation->id,
+                    'language_id' => $translation->language_id,
+                    'language_name' => $translation->language->name ?? null,
+                    'language_code' => $translation->language->code ?? null,
+                    'translated_text' => $text,
+                    'is_active' => $translation->is_active,
+                    'created_at' => $translation->created_at,
+                    'updated_at' => $translation->updated_at,
+                ];
+            })->values()->toArray();
+            
+            $questionArray['translations'] = $translationsArray;
+            $questionArray['translation_count'] = count($translationsArray);
+            
+            // If specific language is requested, also set it as the primary question_text
+            if ($languageId) {
+                $specificTranslation = $translations->firstWhere('language_id', $languageId);
+                if ($specificTranslation) {
+                    $translatedText = $specificTranslation->translated_text;
+                    if (!mb_check_encoding($translatedText, 'UTF-8')) {
+                        $translatedText = mb_convert_encoding($translatedText, 'UTF-8', 'UTF-8');
+                    }
+                    $questionArray['question_text'] = $translatedText;
+                    $questionArray['is_translated'] = true;
+                } else {
+                    $questionArray['is_translated'] = false;
+                }
             } else {
-                $questionArray['is_translated'] = false;
+                $questionArray['is_translated'] = count($translationsArray) > 0;
             }
             
             return $questionArray;
@@ -722,7 +738,14 @@ class QuestionsController extends Controller
                 // Read Excel file
                 // Excel stores text internally as Unicode, so Telugu, Hindi, Tamil, etc. are safe
                 // No encoding loss - Laravel Excel library reads Unicode correctly
-                $data = Excel::toArray([], $file);
+                // Create a simple import class to read the Excel file
+                $import = new class implements \Maatwebsite\Excel\Concerns\ToArray {
+                    public function array(array $array)
+                    {
+                        // This method is required but won't be used
+                    }
+                };
+                $data = Excel::toArray($import, $file);
                 if (empty($data) || empty($data[0])) {
                     return response()->json([
                         'status' => false,
@@ -1084,5 +1107,104 @@ class QuestionsController extends Controller
                 }
             }
         });
+    }
+
+    /**
+     * Update a question translation
+     */
+    public function updateTranslation(Request $request, $translationId)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $translation = QuestionTranslation::with(['question', 'language'])->find($translationId);
+
+        if (!$translation) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Translation not found',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'translated_text' => 'required|string',
+            'is_active' => 'sometimes|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $translation->update($request->only(['translated_text', 'is_active']));
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Translation updated successfully',
+            'data' => [
+                'id' => $translation->id,
+                'question_id' => $translation->question_id,
+                'language_id' => $translation->language_id,
+                'language_name' => $translation->language->name ?? null,
+                'language_code' => $translation->language->code ?? null,
+                'translated_text' => $translation->translated_text,
+                'is_active' => $translation->is_active,
+                'question' => [
+                    'id' => $translation->question->id ?? null,
+                    'question_text' => $translation->question->question_text ?? null,
+                ],
+            ],
+        ], 200);
+    }
+
+    /**
+     * Delete a question translation
+     */
+    public function deleteTranslation(Request $request, $translationId)
+    {
+        $currentUser = $request->user();
+        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
+
+        // Check admin access if authenticated
+        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
+            return response()->json([
+                'status' => false,
+                'message' => 'Forbidden - Admin access required'
+            ], 403);
+        }
+
+        $translation = QuestionTranslation::with(['question', 'language'])->find($translationId);
+
+        if (!$translation) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Translation not found',
+            ], 404);
+        }
+
+        $translationData = [
+            'id' => $translation->id,
+            'question_id' => $translation->question_id,
+            'language_name' => $translation->language->name ?? null,
+            'translated_text' => $translation->translated_text,
+        ];
+
+        $translation->delete();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Translation deleted successfully',
+            'data' => $translationData,
+        ], 200);
     }
 }

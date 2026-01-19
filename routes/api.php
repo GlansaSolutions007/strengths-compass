@@ -118,6 +118,10 @@ Route::post('questions/bulk-upload', [QuestionsController::class, 'bulkUpload'])
 // Questions Import Translations (Admin)
 Route::post('questions/import-translations', [QuestionsController::class, 'importTranslations']);
 
+// Question Translations CRUD (Admin)
+Route::put('question-translations/{translationId}', [QuestionsController::class, 'updateTranslation']);
+Route::delete('question-translations/{translationId}', [QuestionsController::class, 'deleteTranslation']);
+
 // Questions Construct Assignment
 Route::post('questions/{id}/assign-construct', [QuestionsController::class, 'assignConstruct']);
 Route::post('questions/bulk-assign-construct', [QuestionsController::class, 'bulkAssignConstruct']);
