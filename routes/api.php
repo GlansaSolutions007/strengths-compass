@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\AgeGroupController;
 use App\Http\Controllers\Api\SchoolController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\LanguageController;
+use App\Http\Controllers\Api\DatabaseController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -183,6 +184,10 @@ Route::get('languages/{id}', [LanguageController::class, 'show']);
 Route::put('languages/{id}', [LanguageController::class, 'update']);
 Route::delete('languages/{id}', [LanguageController::class, 'destroy']);
 Route::patch('languages/{id}/toggle-active', [LanguageController::class, 'toggleActive']);
+
+// Database routes (Admin - should be protected in production)
+Route::get('database/download', [DatabaseController::class, 'downloadDatabase']); // Download database SQL backup
+Route::get('database/info', [DatabaseController::class, 'getDatabaseInfo']); // Get database information
 
 // ============================================
 // TO RE-ENABLE AUTHENTICATION:
