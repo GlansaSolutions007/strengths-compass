@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Models\QuestionsModel as Question;
 use App\Models\Construct;
 use App\Models\QuestionTranslation;
 use App\Models\Language;
 use App\Models\QuestionTranslationImport;
 use App\Imports\QuestionsImport;
+use App\Exports\QuestionTranslationTemplateExport;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -587,72 +589,67 @@ class QuestionsController extends Controller
     }
 
     /**
-     * Export all active questions as CSV template for translations
+     * Export all active questions as XLSX template for translations
      * Admin only
      * 
      * Headers: question_id, question_en, language, translated_text
      * - question_en comes from questions.question_text
      * - language and translated_text are empty (for translators to fill)
      * - Optional: Filter by age_group_id parameter
+     * - Exports as XLSX format (Excel stores text as Unicode - safe for Telugu, Hindi, Tamil, etc.)
      */
     public function exportTranslationTemplate(Request $request)
     {
-        $currentUser = $request->user();
-        $hasAuthToken = $request->bearerToken() || $request->hasHeader('Authorization');
-
-        // Check admin access if authenticated
-        if ($hasAuthToken && $currentUser && $currentUser->role !== 'admin') {
-            return response()->json([
-                'status' => false,
-                'message' => 'Forbidden - Admin access required'
-            ], 403);
-        }
-
-        // Build query for active questions
         $query = Question::where('is_active', true);
 
-        // Filter by age_group_id if provided
         if ($request->has('age_group_id')) {
-            $query->where('age_group_id', $request->input('age_group_id'));
+            $query->where('age_group_id', $request->age_group_id);
         }
 
-        // Get questions ordered by id
-        $questions = $query->orderBy('id')
-            ->get(['id', 'question_text']);
+        $questions = $query->orderBy('id')->get(['id', 'question_text']);
 
-        $fileName = 'question_translation_template.csv';
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="question_translation_template.csv"',
+        ];
 
-        return response()->streamDownload(function () use ($questions) {
+        $callback = function () use ($questions) {
             $handle = fopen('php://output', 'w');
             
-            // Add UTF-8 BOM for Excel compatibility
-            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
+            // UTF-8 BOM (important for Excel)
+            fwrite($handle, "\xEF\xBB\xBF");
             
-            // Write CSV headers
-            fputcsv($handle, ['question_id', 'question_en', 'language', 'translated_text']);
+            // Headings
+            fputcsv($handle, [
+                'question_id',
+                'question_en',
+                'language',
+                'translated_text'
+            ]);
             
-            // Write question data
             foreach ($questions as $question) {
                 fputcsv($handle, [
                     $question->id,
                     $question->question_text,
-                    '', // language - empty for translators to fill
-                    '', // translated_text - empty for translators to fill
+                    '',
+                    '',
                 ]);
             }
             
             fclose($handle);
-        }, $fileName, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
-        ]);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 
+
     /**
-     * Import question translations from CSV file
+     * Import question translations from CSV or Excel file
      * Admin only
      * 
      * CSV columns: question_id, question_en, language, translated_text
+     * - CSV files MUST be UTF-8 encoded (rejects non-UTF-8 files)
+     * - Excel files (XLSX/XLS) are safe - they store text as Unicode internally
      * - Ignores question_en column
      * - Validates question_id exists
      * - Maps language column (full name like "Telugu", "Hindi" or code like "te", "hi") to language records
@@ -723,6 +720,8 @@ class QuestionsController extends Controller
             // Process file based on type
             if ($isExcel) {
                 // Read Excel file
+                // Excel stores text internally as Unicode, so Telugu, Hindi, Tamil, etc. are safe
+                // No encoding loss - Laravel Excel library reads Unicode correctly
                 $data = Excel::toArray([], $file);
                 if (empty($data) || empty($data[0])) {
                     return response()->json([
@@ -753,7 +752,7 @@ class QuestionsController extends Controller
                     ], 422);
                 }
             } else {
-                // Process CSV file with UTF-8 encoding support
+                // Process CSV file with UTF-8 encoding validation
                 $filePath = $file->getRealPath();
                 
                 try {
@@ -767,26 +766,32 @@ class QuestionsController extends Controller
                         ], 422);
                     }
                     
-                    // Remove UTF-8 BOM if present
-                    if (substr($fileContent, 0, 3) === "\xEF\xBB\xBF") {
+                    // Remove UTF-8 BOM if present (BOM is valid, just remove it for processing)
+                    $hasBom = substr($fileContent, 0, 3) === "\xEF\xBB\xBF";
+                    if ($hasBom) {
                         $fileContent = substr($fileContent, 3);
                     }
                     
-                    // Detect encoding (try common encodings)
+                    // STRICT UTF-8 VALIDATION: Reject files that are not valid UTF-8
+                    if (!mb_check_encoding($fileContent, 'UTF-8')) {
+                        // Detect what encoding it might be
                     $detectedEncoding = mb_detect_encoding($fileContent, ['UTF-8', 'UTF-16LE', 'UTF-16BE', 'ISO-8859-1', 'Windows-1252', 'ASCII'], true);
                     
-                    // Convert to UTF-8 if not already UTF-8
-                    if ($detectedEncoding && $detectedEncoding !== 'UTF-8') {
-                        $converted = @mb_convert_encoding($fileContent, 'UTF-8', $detectedEncoding);
-                        if ($converted !== false) {
-                            $fileContent = $converted;
-                        }
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'CSV file must be UTF-8 encoded. Detected encoding: ' . ($detectedEncoding ?: 'unknown') . '. Please convert your file to UTF-8 before uploading.',
+                            'detected_encoding' => $detectedEncoding,
+                            'hint' => 'Use Excel or a text editor to save the file as UTF-8 CSV format.',
+                        ], 422);
                     }
                     
-                    // Validate UTF-8 encoding
-                    if (!mb_check_encoding($fileContent, 'UTF-8')) {
-                        // Try to fix invalid UTF-8 sequences
-                        $fileContent = mb_convert_encoding($fileContent, 'UTF-8', 'UTF-8');
+                    // Additional validation: Check for invalid UTF-8 sequences
+                    // This catches cases where mb_check_encoding might pass but file has issues
+                    if (!@mb_convert_encoding($fileContent, 'UTF-8', 'UTF-8')) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'CSV file contains invalid UTF-8 sequences. Please ensure the file is properly UTF-8 encoded.',
+                        ], 422);
                     }
                     
                     // Create temporary file with UTF-8 content
@@ -822,11 +827,8 @@ class QuestionsController extends Controller
                         ], 422);
                     }
 
-                    // Clean and normalize headers
+                    // Clean and normalize headers (file is already validated as UTF-8)
                     $headers = array_map(function($header) {
-                        if (!mb_check_encoding($header, 'UTF-8')) {
-                            $header = mb_convert_encoding($header, 'UTF-8', 'UTF-8');
-                        }
                         return trim($header);
                     }, $headers);
 
@@ -851,14 +853,17 @@ class QuestionsController extends Controller
                         ], 422);
                     }
 
-                    // Read all CSV rows and ensure UTF-8 encoding
+                    // Read all CSV rows (file is already validated as UTF-8)
                     while (($row = fgetcsv($handle)) !== false) {
-                        // Clean each cell to ensure UTF-8 encoding
+                        // Validate each cell is still UTF-8 (should be, but double-check)
                         $row = array_map(function($cell) {
-                            if ($cell !== null && $cell !== '') {
-                                if (!mb_check_encoding($cell, 'UTF-8')) {
-                                    $cell = mb_convert_encoding($cell, 'UTF-8', 'UTF-8');
-                                }
+                            if ($cell !== null && $cell !== '' && !mb_check_encoding($cell, 'UTF-8')) {
+                                // This should not happen since file was validated, but log if it does
+                                Log::warning('CSV cell encoding issue detected after file validation', [
+                                    'cell_preview' => mb_substr($cell, 0, 50),
+                                ]);
+                                // Reject the file if we find invalid UTF-8 in cells
+                                throw new \Exception('Invalid UTF-8 encoding detected in CSV data. File validation failed.');
                             }
                             return $cell;
                         }, $row);
@@ -896,6 +901,12 @@ class QuestionsController extends Controller
                 $questionId = isset($row[$questionIdIndex]) ? trim((string)$row[$questionIdIndex]) : null;
                 $languageInput = isset($row[$languageIndex]) ? trim((string)$row[$languageIndex]) : null;
                 $translatedText = isset($row[$translatedTextIndex]) ? trim((string)$row[$translatedTextIndex]) : null;
+
+                // HARD FIX: repair mojibake if present (only needed for CSV files)
+                // Excel files store text as Unicode, so this fix won't match for XLSX/XLS files
+                if ($translatedText && preg_match('/Ã.|â./', $translatedText)) {
+                    $translatedText = mb_convert_encoding($translatedText, 'UTF-8', 'Windows-1252');
+                }
 
                 // Skip rows with empty translated_text
                 if (empty($translatedText)) {

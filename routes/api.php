@@ -157,6 +157,9 @@ Route::get('test-results/{testResultId}/report', [ReportController::class, 'getR
 Route::post('test-results/{testResultId}/report/pdf', [ReportController::class, 'storePdf']); // Store PDF file from frontend
 Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report
 Route::get('test-results/{testResultId}/report/pdf/short', [ReportController::class, 'downloadShortPdf']); // Download short PDF report (clusters and constructs with bands)
+Route::get('test-results/{testResultId}/report/pdf/snappy', [ReportController::class, 'downloadSnappyPdf']); // Download PDF report using Snappy (wkhtmltopdf)
+Route::post('test-results/{testResultId}/report/pdf/email', [ReportController::class, 'sendPdfByEmail']); // Send PDF report via email to user
+Route::post('reports/pdf/bulk-email', [ReportController::class, 'sendBulkPdfByEmail']); // Send PDF reports via email to multiple users (bulk)
 Route::get('test-results/{testResultId}/report/view', [ReportController::class, 'viewPdf']); // View PDF report in browser
 Route::put('test-results/{testResultId}/report', [ReportController::class, 'updateReportContent']); // Update report summary/recommendations
 

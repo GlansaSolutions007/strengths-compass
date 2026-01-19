@@ -49,6 +49,10 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         array (
             'voku\\' => 5,
         ),
+        'h' => 
+        array (
+            'h4cc\\WKHTMLToPDF\\' => 17,
+        ),
         'Z' => 
         array (
             'ZipStream\\' => 10,
@@ -145,6 +149,10 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
             'Laravel\\Prompts\\' => 16,
             'Laravel\\Pail\\' => 13,
         ),
+        'K' => 
+        array (
+            'Knp\\Snappy\\' => 11,
+        ),
         'I' => 
         array (
             'Illuminate\\Support\\' => 19,
@@ -191,6 +199,7 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         'B' => 
         array (
             'Brick\\Math\\' => 11,
+            'Barryvdh\\Snappy\\' => 16,
             'Barryvdh\\DomPDF\\' => 16,
         ),
         'A' => 
@@ -203,6 +212,10 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         'voku\\' => 
         array (
             0 => __DIR__ . '/..' . '/voku/portable-ascii/src/voku',
+        ),
+        'h4cc\\WKHTMLToPDF\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/h4cc/wkhtmltopdf-amd64',
         ),
         'ZipStream\\' => 
         array (
@@ -483,6 +496,10 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         array (
             0 => __DIR__ . '/..' . '/laravel/pail/src',
         ),
+        'Knp\\Snappy\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/knplabs/knp-snappy/src/Knp/Snappy',
+        ),
         'Illuminate\\Support\\' => 
         array (
             0 => __DIR__ . '/..' . '/laravel/framework/src/Illuminate/Macroable',
@@ -591,6 +608,10 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         array (
             0 => __DIR__ . '/..' . '/brick/math/src',
         ),
+        'Barryvdh\\Snappy\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src',
+        ),
         'Barryvdh\\DomPDF\\' => 
         array (
             0 => __DIR__ . '/..' . '/barryvdh/laravel-dompdf/src',
@@ -615,31 +636,50 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
     public static $classMap = array (
         'App\\Console\\Commands\\TestEmail' => __DIR__ . '/../..' . '/app/Console/Commands/TestEmail.php',
         'App\\Console\\Commands\\TestWelcomeMail' => __DIR__ . '/../..' . '/app/Console/Commands/TestWelcomeMail.php',
+        'App\\Exports\\QuestionTranslationTemplateExport' => __DIR__ . '/../..' . '/app/Exports/QuestionTranslationTemplateExport.php',
         'App\\Exports\\Sheets\\ClusterSummarySheet' => __DIR__ . '/../..' . '/app/Exports/Sheets/ClusterSummarySheet.php',
         'App\\Exports\\Sheets\\ConstructSummarySheet' => __DIR__ . '/../..' . '/app/Exports/Sheets/ConstructSummarySheet.php',
         'App\\Exports\\Sheets\\RawTestDataSheet' => __DIR__ . '/../..' . '/app/Exports/Sheets/RawTestDataSheet.php',
         'App\\Exports\\UserTestDataExport' => __DIR__ . '/../..' . '/app/Exports/UserTestDataExport.php',
+        'App\\Http\\Controllers\\Api\\AgeGroupController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/AgeGroupController.php',
         'App\\Http\\Controllers\\Api\\AuthController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/AuthController.php',
         'App\\Http\\Controllers\\Api\\ClusterController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/ClusterController.php',
         'App\\Http\\Controllers\\Api\\ConstructController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/ConstructController.php',
         'App\\Http\\Controllers\\Api\\CountryController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/CountryController.php',
+        'App\\Http\\Controllers\\Api\\LandingPageController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/LandingPageController.php',
+        'App\\Http\\Controllers\\Api\\LanguageController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/LanguageController.php',
         'App\\Http\\Controllers\\Api\\OptionsController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/OptionsController.php',
+        'App\\Http\\Controllers\\Api\\OrganizationController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/OrganizationController.php',
         'App\\Http\\Controllers\\Api\\QuestionsController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/QuestionsController.php',
         'App\\Http\\Controllers\\Api\\ReportController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/ReportController.php',
+        'App\\Http\\Controllers\\Api\\SchoolController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/SchoolController.php',
         'App\\Http\\Controllers\\Api\\StateController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/StateController.php',
         'App\\Http\\Controllers\\Api\\TestController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/TestController.php',
         'App\\Http\\Controllers\\Api\\TestTakingController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/TestTakingController.php',
         'App\\Http\\Controllers\\Api\\UserController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/UserController.php',
         'App\\Http\\Controllers\\Controller' => __DIR__ . '/../..' . '/app/Http/Controllers/Controller.php',
+        'App\\Http\\Controllers\\WelcomeController' => __DIR__ . '/../..' . '/app/Http/Controllers/WelcomeController.php',
+        'App\\Http\\Middleware\\EnsureUtf8Encoding' => __DIR__ . '/../..' . '/app/Http/Middleware/EnsureUtf8Encoding.php',
+        'App\\Imports\\OrganizationUsersImport' => __DIR__ . '/../..' . '/app/Imports/OrganizationUsersImport.php',
         'App\\Imports\\QuestionsImport' => __DIR__ . '/../..' . '/app/Imports/QuestionsImport.php',
+        'App\\Imports\\SchoolUsersImport' => __DIR__ . '/../..' . '/app/Imports/SchoolUsersImport.php',
+        'App\\Jobs\\SendTestCompletionEmails' => __DIR__ . '/../..' . '/app/Jobs/SendTestCompletionEmails.php',
         'App\\Mail\\ForgotPasswordMail' => __DIR__ . '/../..' . '/app/Mail/ForgotPasswordMail.php',
         'App\\Mail\\TestCompletionMail' => __DIR__ . '/../..' . '/app/Mail/TestCompletionMail.php',
+        'App\\Mail\\TestSubmissionAdminMail' => __DIR__ . '/../..' . '/app/Mail/TestSubmissionAdminMail.php',
         'App\\Mail\\WelcomeMail' => __DIR__ . '/../..' . '/app/Mail/WelcomeMail.php',
+        'App\\Models\\AgeGroup' => __DIR__ . '/../..' . '/app/Models/AgeGroup.php',
         'App\\Models\\Cluster' => __DIR__ . '/../..' . '/app/Models/Cluster.php',
         'App\\Models\\Construct' => __DIR__ . '/../..' . '/app/Models/Construct.php',
         'App\\Models\\Country' => __DIR__ . '/../..' . '/app/Models/Country.php',
+        'App\\Models\\LandingPageContent' => __DIR__ . '/../..' . '/app/Models/LandingPageContent.php',
+        'App\\Models\\Language' => __DIR__ . '/../..' . '/app/Models/Language.php',
         'App\\Models\\OptionsModel' => __DIR__ . '/../..' . '/app/Models/OptionsModel.php',
+        'App\\Models\\Organization' => __DIR__ . '/../..' . '/app/Models/Organization.php',
+        'App\\Models\\QuestionTranslation' => __DIR__ . '/../..' . '/app/Models/QuestionTranslation.php',
+        'App\\Models\\QuestionTranslationImport' => __DIR__ . '/../..' . '/app/Models/QuestionTranslationImport.php',
         'App\\Models\\QuestionsModel' => __DIR__ . '/../..' . '/app/Models/QuestionsModel.php',
+        'App\\Models\\School' => __DIR__ . '/../..' . '/app/Models/School.php',
         'App\\Models\\ScoringRule' => __DIR__ . '/../..' . '/app/Models/ScoringRule.php',
         'App\\Models\\State' => __DIR__ . '/../..' . '/app/Models/State.php',
         'App\\Models\\Test' => __DIR__ . '/../..' . '/app/Models/Test.php',
@@ -652,6 +692,15 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         'Barryvdh\\DomPDF\\Facade\\Pdf' => __DIR__ . '/..' . '/barryvdh/laravel-dompdf/src/Facade/Pdf.php',
         'Barryvdh\\DomPDF\\PDF' => __DIR__ . '/..' . '/barryvdh/laravel-dompdf/src/PDF.php',
         'Barryvdh\\DomPDF\\ServiceProvider' => __DIR__ . '/..' . '/barryvdh/laravel-dompdf/src/ServiceProvider.php',
+        'Barryvdh\\Snappy\\Facades\\SnappyImage' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/Facades/SnappyImage.php',
+        'Barryvdh\\Snappy\\Facades\\SnappyPdf' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/Facades/SnappyPdf.php',
+        'Barryvdh\\Snappy\\IlluminateSnappyImage' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/IlluminateSnappyImage.php',
+        'Barryvdh\\Snappy\\IlluminateSnappyPdf' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/IlluminateSnappyPdf.php',
+        'Barryvdh\\Snappy\\ImageWrapper' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/ImageWrapper.php',
+        'Barryvdh\\Snappy\\LumenServiceProvider' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/LumenServiceProvider.php',
+        'Barryvdh\\Snappy\\PdfFaker' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/PdfFaker.php',
+        'Barryvdh\\Snappy\\PdfWrapper' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/PdfWrapper.php',
+        'Barryvdh\\Snappy\\ServiceProvider' => __DIR__ . '/..' . '/barryvdh/laravel-snappy/src/ServiceProvider.php',
         'Brick\\Math\\BigDecimal' => __DIR__ . '/..' . '/brick/math/src/BigDecimal.php',
         'Brick\\Math\\BigInteger' => __DIR__ . '/..' . '/brick/math/src/BigInteger.php',
         'Brick\\Math\\BigNumber' => __DIR__ . '/..' . '/brick/math/src/BigNumber.php',
@@ -805,6 +854,8 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         'Database\\Factories\\UserFactory' => __DIR__ . '/../..' . '/database/factories/UserFactory.php',
         'Database\\Seeders\\CountriesSeeder' => __DIR__ . '/../..' . '/database/seeders/CountriesSeeder.php',
         'Database\\Seeders\\DatabaseSeeder' => __DIR__ . '/../..' . '/database/seeders/DatabaseSeeder.php',
+        'Database\\Seeders\\LandingPageContentSeeder' => __DIR__ . '/../..' . '/database/seeders/LandingPageContentSeeder.php',
+        'Database\\Seeders\\LanguageSeeder' => __DIR__ . '/../..' . '/database/seeders/LanguageSeeder.php',
         'Database\\Seeders\\OptionsSeeder' => __DIR__ . '/../..' . '/database/seeders/OptionsSeeder.php',
         'Database\\Seeders\\StatesSeeder' => __DIR__ . '/../..' . '/database/seeders/StatesSeeder.php',
         'DateError' => __DIR__ . '/..' . '/symfony/polyfill-php83/Resources/stubs/DateError.php',
@@ -3461,6 +3512,11 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         'Illuminate\\View\\ViewFinderInterface' => __DIR__ . '/..' . '/laravel/framework/src/Illuminate/View/ViewFinderInterface.php',
         'Illuminate\\View\\ViewName' => __DIR__ . '/..' . '/laravel/framework/src/Illuminate/View/ViewName.php',
         'Illuminate\\View\\ViewServiceProvider' => __DIR__ . '/..' . '/laravel/framework/src/Illuminate/View/ViewServiceProvider.php',
+        'Knp\\Snappy\\AbstractGenerator' => __DIR__ . '/..' . '/knplabs/knp-snappy/src/Knp/Snappy/AbstractGenerator.php',
+        'Knp\\Snappy\\Exception\\FileAlreadyExistsException' => __DIR__ . '/..' . '/knplabs/knp-snappy/src/Knp/Snappy/Exception/FileAlreadyExistsException.php',
+        'Knp\\Snappy\\GeneratorInterface' => __DIR__ . '/..' . '/knplabs/knp-snappy/src/Knp/Snappy/GeneratorInterface.php',
+        'Knp\\Snappy\\Image' => __DIR__ . '/..' . '/knplabs/knp-snappy/src/Knp/Snappy/Image.php',
+        'Knp\\Snappy\\Pdf' => __DIR__ . '/..' . '/knplabs/knp-snappy/src/Knp/Snappy/Pdf.php',
         'Laravel\\Pail\\Console\\Commands\\PailCommand' => __DIR__ . '/..' . '/laravel/pail/src/Console/Commands/PailCommand.php',
         'Laravel\\Pail\\Contracts\\Printer' => __DIR__ . '/..' . '/laravel/pail/src/Contracts/Printer.php',
         'Laravel\\Pail\\File' => __DIR__ . '/..' . '/laravel/pail/src/File.php',
@@ -8086,6 +8142,7 @@ class ComposerStaticInit8f387a0734f3bf879214e4aa2fca6e2f
         'ZipStream\\Zip64\\ExtendedInformationExtraField' => __DIR__ . '/..' . '/maennchen/zipstream-php/src/Zip64/ExtendedInformationExtraField.php',
         'ZipStream\\ZipStream' => __DIR__ . '/..' . '/maennchen/zipstream-php/src/ZipStream.php',
         'ZipStream\\Zs\\ExtendedInformationExtraField' => __DIR__ . '/..' . '/maennchen/zipstream-php/src/Zs/ExtendedInformationExtraField.php',
+        'h4cc\\WKHTMLToPDF\\WKHTMLToPDF' => __DIR__ . '/..' . '/h4cc/wkhtmltopdf-amd64/WKHTMLToPDF.php',
         'staabm\\SideEffectsDetector\\SideEffect' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffect.php',
         'staabm\\SideEffectsDetector\\SideEffectsDetector' => __DIR__ . '/..' . '/staabm/side-effects-detector/lib/SideEffectsDetector.php',
         'voku\\helper\\ASCII' => __DIR__ . '/..' . '/voku/portable-ascii/src/voku/helper/ASCII.php',
