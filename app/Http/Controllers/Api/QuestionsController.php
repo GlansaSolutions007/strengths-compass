@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use App\Models\QuestionsModel as Question;
 use App\Models\Construct;
 use App\Models\QuestionTranslation;
@@ -47,13 +48,17 @@ class QuestionsController extends Controller
 
         $questions = $query->orderBy('order_no')->get();
 
-        // Load all translations for all questions
+        // Load all translations for all questions (only if table exists)
         $questionIds = $questions->pluck('id')->toArray();
-        $allTranslations = QuestionTranslation::whereIn('question_id', $questionIds)
-            ->where('is_active', true)
-            ->with('language')
-            ->get()
-            ->groupBy('question_id');
+        $allTranslations = collect();
+        
+        if (Schema::hasTable('question_translations')) {
+            $allTranslations = QuestionTranslation::whereIn('question_id', $questionIds)
+                ->where('is_active', true)
+                ->with('language')
+                ->get()
+                ->groupBy('question_id');
+        }
 
         // Handle language filter (if lang parameter is provided, show only that language)
         $lang = $request->input('lang', null);
@@ -200,7 +205,7 @@ class QuestionsController extends Controller
         // If language is specified and found, load translation
         $questionArray = $question->toArray();
         
-        if ($languageId) {
+        if ($languageId && Schema::hasTable('question_translations')) {
             $translation = QuestionTranslation::where('question_id', $question->id)
                 ->where('language_id', $languageId)
                 ->where('is_active', true)
@@ -329,7 +334,7 @@ class QuestionsController extends Controller
         }
 
         // If language is specified and found, load translations
-        if ($languageId) {
+        if ($languageId && Schema::hasTable('question_translations')) {
             $questionIds = $questions->pluck('id')->toArray();
             $translations = QuestionTranslation::whereIn('question_id', $questionIds)
                 ->where('language_id', $languageId)
@@ -698,6 +703,14 @@ class QuestionsController extends Controller
             ], 422);
         }
 
+        // Check if question_translations table exists
+        if (!Schema::hasTable('question_translations')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Translation feature is not available. The question_translations table does not exist. Please run migrations.',
+            ], 503);
+        }
+
         $file = $request->file('file');
         $fileName = $file->getClientOriginalName();
         $fileExtension = strtolower($file->getClientOriginalExtension());
@@ -862,7 +875,7 @@ class QuestionsController extends Controller
 
                     // Find column indices
                     $questionIdIndex = array_search('question_id', $normalizedHeaders);
-                    $languageIndex = array_search('language', $normalizedHeaders);
+                    $languageIndex = array_search('language', haystack: $normalizedHeaders);
                     $translatedTextIndex = array_search('translated_text', $normalizedHeaders);
 
                     // Validate required columns exist
@@ -1125,6 +1138,14 @@ class QuestionsController extends Controller
             ], 403);
         }
 
+        // Check if question_translations table exists
+        if (!Schema::hasTable('question_translations')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Translation feature is not available. The question_translations table does not exist. Please run migrations.',
+            ], 503);
+        }
+
         $translation = QuestionTranslation::with(['question', 'language'])->find($translationId);
 
         if (!$translation) {
@@ -1181,6 +1202,14 @@ class QuestionsController extends Controller
                 'status' => false,
                 'message' => 'Forbidden - Admin access required'
             ], 403);
+        }
+
+        // Check if question_translations table exists
+        if (!Schema::hasTable('question_translations')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Translation feature is not available. The question_translations table does not exist. Please run migrations.',
+            ], 503);
         }
 
         $translation = QuestionTranslation::with(['question', 'language'])->find($translationId);
