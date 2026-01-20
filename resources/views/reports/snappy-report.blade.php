@@ -262,6 +262,10 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.06);
         }
 
+        .test-report-summary.sdb-guidance {
+            border-left: 3px solid rgb(234, 102, 102) !important;
+        }
+
         /* ============================================
            SCORES SECTIONS - MODERN CARDS
            ============================================ */
@@ -445,25 +449,26 @@
         
 
         .radar-chart-title {
-            font-size: 28pt;
+            font-size: 24pt;
             font-weight: 700;
-            color: #667eea;
-            margin-bottom: 40px;
+            color: #2c3e50;
+            margin-bottom: 30px;
             text-align: center;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.05);
+            letter-spacing: 0.5px;
         }
 
         .radar-chart-container {
-            width: 600px;
-            height: 600px;
+            /* width: 600px;
+            height: 600px; */
             display: flex;
             justify-content: center;
             align-items: center;
             margin: 0 auto;
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-            padding: 20px;
+            /* border-radius: 8px; */
+            /* border: 1px solid #e0e0e0; */
+            /* box-shadow: 0 4px 12px rgba(0,0,0,0.08); */
+            /* padding: 30px; */
         }
 
         .radar-chart-image {
@@ -682,14 +687,7 @@
                 @endphp
                 {{ $summaryText }}
                 
-                @if(isset($sdbPercentage) && $sdbPercentage !== null && $sdbPercentage >= 90)
-                    <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #e9ecef;">
-                        <p style="font-size: 10.5pt; color: #667eea; font-weight: 600; margin-bottom: 8px;">[Guidance]:</p>
-                        <p style="font-size: 10.5pt; color: #4a5568; line-height: 1.6; font-style: italic; margin: 0;">
-                            "This profile may benefit from further exploration to distinguish between current strengths and aspirational qualities."
-                        </p>
-                    </div>
-                @endif
+               
             </div>
         </div>
 
@@ -761,6 +759,15 @@
                     </ul>
                 </div>
             @endif
+
+            @if(isset($sdbPercentage) && $sdbPercentage !== null && $sdbPercentage >= 90)
+                    <div class="test-report-summary sdb-guidance">
+                        <p style="font-size: 11pt; color:rgb(243, 55, 55); font-weight: 600; margin-bottom: 8px;">Guidance:</p>
+                        <p style="font-size: 11pt; color: #4a5568; line-height: 1.6; font-style: italic; margin: 0; font-weight: 900;">
+                        "This profile may benefit from further exploration to distinguish between current strengths and aspirational qualities. A follow-up conversation with a coach can help personalize these insights."
+                        </p>
+                    </div>
+                @endif
         @endif
 
         <!-- Cluster Scores -->
@@ -844,9 +851,10 @@
          ============================================ -->
     @if(isset($radarClusterChartBase64) && !empty($radarClusterChartBase64))
         <div class="radar-chart-page">
-            <h2 class="radar-chart-title">Strengths Radar Chart</h2>
+            <h2 class="radar-chart-title">Cluster Radar Chart</h2>
             <div class="radar-chart-container">
-                <img src="data:image/png;base64,{{ $radarClusterChartBase64 }}" alt="Cluster Radar Chart" class="radar-chart-image" />
+                <!-- <img src="data:image/png;base64,{{ $radarClusterChartBase64 }}" alt="Cluster Radar Chart" class="radar-chart-image" /> -->
+                 {!! $radarClusterChartBase64 !!}
             </div>
         </div>
     @endif
@@ -858,7 +866,8 @@
         <div class="radar-chart-page">
             <h2 class="radar-chart-title">Constructs Radar Chart</h2>
             <div class="radar-chart-container">
-                <img src="data:image/png;base64,{{ $radarConstructChartBase64 }}" alt="Construct Radar Chart" class="radar-chart-image" />
+                <!-- <img src="data:image/png;base64,{{ $radarConstructChartBase64 }}" alt="Construct Radar Chart" class="radar-chart-image" /> -->
+                {!! $radarConstructChartBase64 !!}
             </div>
         </div>
     @endif

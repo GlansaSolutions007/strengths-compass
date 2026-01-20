@@ -912,8 +912,12 @@ class ReportController extends Controller
                    trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                    'user';
 
-        // Calculate SDB percentage
-        $sdbPercentage = $this->calculateSDBPercentage($testResult);
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
+
+        $radarClusterSvg = $this->generateRadarChartSvg($clusterScores);
+        $radarConstructSvg = $this->generateRadarChartSvg($constructScores);
 
         $data = [
             'user'                       => $testResult->user,
@@ -926,8 +930,9 @@ class ReportController extends Controller
             'constructScores'            => $constructScores,
             'reportSummary'              => $report->report_summary ?? null,
             'logoBase64'                 => $logoBase64,
-            'radarClusterChartBase64'    => $this->generateRadarChartBase64($clusterScores, 'cluster'),
-            'radarConstructChartBase64'  => $this->generateRadarChartBase64($constructScores, 'construct'),
+            'radarClusterChartBase64'    => $radarClusterSvg,
+            'radarConstructChartBase64'  => $radarConstructSvg,
+            
             'sdbPercentage'              => $sdbPercentage,
         ];
 
@@ -1030,105 +1035,356 @@ be influenced by context, mood, and self perception. Use them as a starting poin
      * @param string $type 'cluster' or 'construct'
      * @return string|null Base64 encoded image
      */
-    private function generateRadarChartBase64(array $scores, string $type = 'cluster')
+    // private function generateRadarChartBase64(array $scores, string $type = 'cluster')
+    // {
+    //     if (empty($scores)) {
+    //         return null;
+    //     }
+
+    //     // Prepare labels & data with scores
+    //     $labels = [];
+    //     $values = [];
+
+    //     foreach ($scores as $name => $data) {
+    //         $percentage = is_array($data)
+    //             ? ($data['percentage'] ?? 0)
+    //             : (float) $data;
+            
+    //         // Format label with score below name (using special formatting for styling)
+    //         // Chart.js will render this, but we'll style it in the pointLabels config
+    //         $labels[] = $name . "\n" . round($percentage) . "%";
+    //         $values[] = $percentage;
+    //     }
+
+    //     $chartConfig = [
+    //         'type' => 'radar',
+    //         'data' => [
+    //             'labels' => $labels,
+    //             'datasets' => [[
+    //                 'label' => $type === 'cluster'
+    //                     ? 'Cluster Strengths'
+    //                     : 'Construct Strengths',
+    //                 'data' => $values,
+    //                 'backgroundColor' => 'rgba(255, 152, 0, 0.25)', // Light orange fill
+    //                 'borderColor' => 'rgba(255, 152, 0, 1)', // Orange border
+    //                 'borderWidth' => 2.5,
+    //                 'pointBackgroundColor' => 'rgba(255, 152, 0, 1)', // Orange points
+    //                 'pointBorderColor' => '#ffffff',
+    //                 'pointBorderWidth' => 2,
+    //                 'pointHoverBackgroundColor' => 'rgba(255, 152, 0, 1)',
+    //                 'pointHoverBorderColor' => '#ffffff',
+    //                 'pointRadius' => 5,
+    //                 'pointHoverRadius' => 7,
+    //             ]]
+    //         ],
+    //         'options' => [
+    //             'responsive' => false,
+    //             'maintainAspectRatio' => true,
+    //             'aspectRatio' => 1,
+    //             'layout' => [
+    //                 'padding' => [
+    //                     'top' => 30,
+    //                     'bottom' => 30,
+    //                     'left' => 30,
+    //                     'right' => 30
+    //                 ]
+    //             ],
+    //             'scales' => [
+    //                 'r' => [
+    //                     'beginAtZero' => true,
+    //                     'max' => 100,
+    //                     'min' => 0,
+    //                     'ticks' => [
+    //                         'stepSize' => 20,
+    //                         'count' => 6,
+    //                         'maxTicksLimit' => 6,
+    //                         'precision' => 0,
+    //                         'font' => [
+    //                             'size' => 11,
+    //                             'family' => 'Arial, sans-serif'
+    //                         ],
+    //                         'color' => '#666666',
+    //                         'backdropColor' => 'transparent',
+    //                         'showLabelBackdrop' => false,
+    //                         'z' => 1
+    //                     ],
+    //                     'grid' => [
+    //                         'color' => 'rgba(0, 0, 0, 0.15)',
+    //                         'lineWidth' => 1,
+    //                         'circular' => true
+    //                     ],
+    //                     'pointLabels' => [
+    //                         'font' => [
+    //                             'size' => 12,
+    //                             'family' => 'Arial, sans-serif',
+    //                             'weight' => 'bold'
+    //                         ],
+    //                         'color' => '#333333',
+    //                         'padding' => 15,
+    //                         'usePointStyle' => false
+    //                     ],
+    //                     'angleLines' => [
+    //                         'color' => 'rgba(0, 0, 0, 0.15)',
+    //                         'lineWidth' => 1,
+    //                         'display' => true,
+    //                         'circular' => true
+    //                     ]
+    //                 ]
+    //             ],
+    //             'plugins' => [
+    //                 'legend' => [
+    //                     'display' => false
+    //                 ],
+    //                 'tooltip' => [
+    //                     'enabled' => false
+    //                 ]
+    //             ]
+    //         ]
+    //     ];
+
+    //     // Generate image using QuickChart
+    //     $response = Http::get('https://quickchart.io/chart', [
+    //         'c' => json_encode($chartConfig),
+    //         'width' => 600,
+    //         'height' => 600,
+    //         'format' => 'png',
+    //         'backgroundColor' => 'white',
+    //     ]);
+
+    //     if (!$response->successful()) {
+    //         return null;
+    //     }
+
+    //     return base64_encode($response->body());
+    // }
+
+    // private function generateRadarChartBase64(array $scores, string $type = 'cluster')
+    // {
+    //     if (empty($scores)) {
+    //         return null;
+    //     }
+    
+    //     $labels = [];
+    //     $values = [];
+    
+    //     foreach ($scores as $name => $data) {
+    //         $percentage = is_array($data)
+    //             ? ($data['percentage'] ?? 0)
+    //             : (float) $data;
+    
+    //         $labels[] = $name;
+    //         $values[] = round($percentage);
+    //     }
+    
+    //     $chartConfig = [
+    //         'type' => 'radar',
+    //         'data' => [
+    //             'labels' => $labels,
+    //             'datasets' => [[
+    //                 'label' => $type === 'cluster'
+    //                     ? 'Cluster Strengths'
+    //                     : 'Construct Strengths',
+    //                 'data' => $values,
+    //                 'backgroundColor' => 'rgba(255,152,0,0.18)',
+    //                 'borderColor' => 'rgba(255,152,0,1)',
+    //                 'borderWidth' => 3,
+    //                 'pointBackgroundColor' => 'rgba(255,152,0,1)',
+    //                 'pointBorderColor' => '#ffffff',
+    //                 'pointBorderWidth' => 2,
+    //                 'pointRadius' => 6,
+    //                 'pointHoverRadius' => 8,
+    //             ]]
+    //         ],
+    //         'options' => [
+    //             'responsive' => false,
+    //             'maintainAspectRatio' => true,
+    //             'aspectRatio' => 1,
+    //             'layout' => [
+    //                 'padding' => 50
+    //             ],
+    //             'scales' => [
+    //                 'r' => [
+    //                     // 🔥 CRITICAL FIX
+    //                     'min' => 0,
+    //                     'max' => 100,
+    //                     'bounds' => 'ticks', // ⭐ THIS STOPS AUTO-ZOOM
+    
+    //                     'grid' => [
+    //                         'circular' => true,
+    //                         'color' => 'rgba(0,0,0,0.12)',
+    //                         'lineWidth' => 1.5
+    //                     ],
+    
+    //                     'angleLines' => [
+    //                         'color' => 'rgba(0,0,0,0.12)',
+    //                         'lineWidth' => 1.5
+    //                     ],
+    
+    //                     // 🔥 FORCE EXACT TICKS
+    //                     'ticks' => [
+    //                         'stepSize' => 20,
+    //                         'autoSkip' => false,
+    //                         'precision' => 0,
+    //                         'showLabelBackdrop' => false,
+    //                         'color' => '#6b7280',
+    //                         'font' => [
+    //                             'size' => 13,
+    //                             'weight' => 'bold'
+    //                         ],
+    //                         'callback' => "function(value) { return value; }"
+    //                     ],
+    
+    //                     'pointLabels' => [
+    //                         'font' => [
+    //                             'size' => 16,
+    //                             'weight' => 'bold'
+    //                         ],
+    //                         'color' => '#0f172a',
+    //                         'padding' => 25
+    //                     ]
+    //                 ]
+    //             ],
+    //             'plugins' => [
+    //                 'legend' => [
+    //                     'display' => false
+    //                 ],
+    //                 'tooltip' => [
+    //                     'enabled' => false
+    //                 ]
+    //             ]
+    //         ]
+    //     ];
+    
+    //     $response = Http::get('https://quickchart.io/chart', [
+    //         'c' => json_encode($chartConfig),
+    //         'width' => 700,
+    //         'height' => 700,
+    //         'format' => 'png',
+    //         'backgroundColor' => 'white',
+    //     ]);
+    
+    //     if (!$response->successful()) {
+    //         return null;
+    //     }
+    
+    //     return base64_encode($response->body());
+    // }
+
+
+    private function generateRadarChartSvg(array $scores): string
     {
-        if (empty($scores)) {
-            return null;
+        /* ================================
+           CONFIG (PDF SAFE)
+           ================================ */
+        $size        = 800;   // Bigger canvas to avoid clipping
+        $center      = 400;   // Move chart inward
+        $radius      = 210;   // Slightly smaller radar
+        $labelRadius = $radius + 75;
+        $levels      = [0, 20, 40, 60, 80, 100];
+    
+        /* ================================
+           DATA PREP
+           ================================ */
+        $labels = array_keys($scores);
+    
+        $values = array_map(function ($v) {
+            if (is_array($v)) {
+                $v = $v['percentage'] ?? 0;
+            }
+            return (float) str_replace('%', '', (string) $v);
+        }, array_values($scores));
+    
+        $count = count($labels);
+        $angleStep = (float) ((2 * pi()) / max((int) $count, 1));
+    
+        /* ================================
+           TEXT WRAP HELPER
+           ================================ */
+        $wrapLabel = function (string $text, int $maxChars = 18): array {
+            return explode("\n", wordwrap($text, $maxChars, "\n", true));
+        };
+    
+        /* ================================
+           SVG START
+           ================================ */
+        $svg = [];
+        $svg[] = "<svg width='{$size}' height='{$size}' viewBox='0 0 {$size} {$size}' xmlns='http://www.w3.org/2000/svg'>";
+    
+        /* ---------- GRID CIRCLES ---------- */
+        foreach ($levels as $level) {
+            $r = ($level / 100) * $radius;
+            $svg[] = "<circle cx='{$center}' cy='{$center}' r='{$r}' fill='none' stroke='#e5e7eb' stroke-width='1'/>";
         }
-
-        // Prepare labels & data
-        $labels = [];
-        $values = [];
-
-        foreach ($scores as $name => $data) {
-            $labels[] = $name;
-            $values[] = is_array($data)
-                ? ($data['percentage'] ?? 0)
-                : (float) $data;
+    
+        /* ---------- AXES + LABELS ---------- */
+        foreach ($labels as $i => $label) {
+            $value = $values[$i];
+            $angle = (-pi() / 2) + ($i * $angleStep);
+    
+            // Axis line
+            $x = $center + cos($angle) * $radius;
+            $y = $center + sin($angle) * $radius;
+            $svg[] = "<line x1='{$center}' y1='{$center}' x2='{$x}' y2='{$y}' stroke='#d1d5db'/>";
+    
+            // Label position
+            $lx = $center + cos($angle) * $labelRadius;
+            $ly = $center + sin($angle) * $labelRadius;
+    
+            // Smart alignment
+            if (abs(cos($angle)) < 0.3) {
+                $anchor = 'middle';
+            } elseif (cos($angle) > 0) {
+                $anchor = 'start';
+            } else {
+                $anchor = 'end';
+            }
+    
+            // Wrap label text
+            $lines = $wrapLabel($label, 18);
+    
+            $svg[] = "<text x='{$lx}' y='{$ly}' text-anchor='{$anchor}' font-family='Arial, Helvetica, sans-serif'>";
+    
+            $dy = 0;
+            foreach ($lines as $line) {
+                $svg[] = "<tspan x='{$lx}' dy='{$dy}' font-size='14' font-weight='700' fill='#0f172a'>{$line}</tspan>";
+                $dy = 18;
+            }
+    
+            // Percentage
+            $svg[] = "<tspan x='{$lx}' dy='18' font-size='13' font-weight='600' fill='#64748b'>{$value}%</tspan>";
+            $svg[] = "</text>";
         }
-
-        $chartConfig = [
-            'type' => 'radar',
-            'data' => [
-                'labels' => $labels,
-                'datasets' => [[
-                    'label' => $type === 'cluster'
-                        ? 'Cluster Strengths'
-                        : 'Construct Strengths',
-                    'data' => $values,
-                    'backgroundColor' => 'rgba(102,126,234,0.2)',
-                    'borderColor' => 'rgba(102,126,234,1)',
-                    'borderWidth' => 2,
-                    'pointBackgroundColor' => 'rgba(102,126,234,1)',
-                    'pointBorderColor' => '#ffffff',
-                    'pointHoverBackgroundColor' => 'rgba(102,126,234,1)',
-                    'pointHoverBorderColor' => '#ffffff',
-                    'pointRadius' => 4,
-                    'pointHoverRadius' => 6,
-                ]]
-            ],
-            'options' => [
-                'responsive' => false,
-                'maintainAspectRatio' => true,
-                'aspectRatio' => 1,
-                'layout' => [
-                    'padding' => 20
-                ],
-                'scales' => [
-                    'r' => [
-                        'beginAtZero' => true,
-                        'max' => 100,
-                        'min' => 0,
-                        'ticks' => [
-                            'stepSize' => 20,
-                            'font' => [
-                                'size' => 10
-                            ],
-                            'color' => '#666',
-                            'backdropColor' => 'transparent'
-                        ],
-                        'grid' => [
-                            'color' => 'rgba(0,0,0,0.1)',
-                            'lineWidth' => 1,
-                            'circular' => true
-                        ],
-                        'pointLabels' => [
-                            'font' => [
-                                'size' => 11
-                            ],
-                            'color' => '#333',
-                            'padding' => 10
-                        ],
-                        'angleLines' => [
-                            'color' => 'rgba(0,0,0,0.1)',
-                            'lineWidth' => 1,
-                            'display' => true
-                        ]
-                    ]
-                ],
-                'plugins' => [
-                    'legend' => [
-                        'display' => false
-                    ]
-                ]
-            ]
-        ];
-
-        // Generate image using QuickChart
-        $response = Http::get('https://quickchart.io/chart', [
-            'c' => json_encode($chartConfig),
-            'width' => 600,
-            'height' => 600,
-            'format' => 'png',
-            'backgroundColor' => 'white',
-        ]);
-
-        if (!$response->successful()) {
-            return null;
+    
+        /* ---------- SCORE POLYGON ---------- */
+        $points = [];
+        foreach ($values as $i => $value) {
+            $angle = (-pi() / 2) + ($i * $angleStep);
+            $r = ($value / 100) * $radius;
+            $x = $center + cos($angle) * $r;
+            $y = $center + sin($angle) * $r;
+            $points[] = "{$x},{$y}";
         }
-
-        return base64_encode($response->body());
+    
+        $svg[] = "<polygon points='" . implode(' ', $points) . "' fill='rgba(255,152,0,0.22)' stroke='rgba(255,152,0,1)' stroke-width='3'/>";
+    
+        /* ---------- RADIAL TICK LABELS ---------- */
+        foreach ($levels as $level) {
+            $y = $center - ($level / 100) * $radius;
+            $svg[] = "<text x='" . ($center + 12) . "' y='{$y}' font-size='12' fill='#6b7280'>{$level}</text>";
+        }
+    
+        $svg[] = "</svg>";
+    
+        return implode('', $svg);
     }
+    
+
+    
+    
+    
+
+    
+    
 
     /**
      * Get logo as base64 encoded string
@@ -1259,8 +1515,12 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                    trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                    'user';
 
-        // Calculate SDB percentage
-        $sdbPercentage = $this->calculateSDBPercentage($testResult);
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
+        $radarClusterSvg = $this->generateRadarChartSvg($clusterScores);
+        $radarConstructSvg = $this->generateRadarChartSvg($constructScores);
+
 
         $data = [
             'user'                       => $testResult->user,
@@ -1273,8 +1533,8 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             'constructScores'            => $constructScores,
             'reportSummary'              => $report->report_summary ?? null,
             'logoBase64'                 => $logoBase64,
-            'radarClusterChartBase64'    => $this->generateRadarChartBase64($clusterScores, 'cluster'),
-            'radarConstructChartBase64'  => $this->generateRadarChartBase64($constructScores, 'construct'),
+            'radarClusterChartBase64'    => $radarClusterSvg,
+            'radarConstructChartBase64'  => $radarConstructSvg,
             'sdbPercentage'              => $sdbPercentage,
         ];
 
@@ -1614,8 +1874,11 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                        trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                        'user';
 
-            // Calculate SDB percentage
-            $sdbPercentage = $this->calculateSDBPercentage($testResult);
+            // Calculate SDB scores
+            $sdbScores = $this->calculateSDBScores($testResult);
+            $sdbPercentage = $sdbScores['percentage'] ?? null;
+            $radarClusterSvg = $this->generateRadarChartSvg($clusterScores);
+            $radarConstructSvg = $this->generateRadarChartSvg($constructScores);
 
             $data = [
                 'user'                       => $testResult->user,
@@ -1628,8 +1891,8 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 'constructScores'            => $constructScores,
                 'reportSummary'              => $report->report_summary ?? null,
                 'logoBase64'                 => $logoBase64,
-                'radarClusterChartBase64'    => $this->generateRadarChartBase64($clusterScores, 'cluster'),
-                'radarConstructChartBase64'  => $this->generateRadarChartBase64($constructScores, 'construct'),
+                'radarClusterChartBase64'    => $radarClusterSvg,
+                'radarConstructChartBase64'  => $radarConstructSvg,
                 'sdbPercentage'              => $sdbPercentage,
             ];
 
