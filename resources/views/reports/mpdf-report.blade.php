@@ -131,10 +131,10 @@ body {
     background-image: linear-gradient(135deg, #fef5e7 0%, #fff5f5 100%);
     border-left: 4px solid #667eea;
     border-radius: 12px;
-    padding: 14px 16px;
+    padding: 10px 12px;
     font-size: 9.5pt;
-    line-height: 1.6;
-    margin-bottom: 12px;
+    line-height: 1.5;
+    margin-bottom: 4px;
     color: #2d3748;
 }
 
@@ -142,6 +142,9 @@ body {
     border-left: 5px solid #f56565 !important;
     background: #fff5f5;
     background-image: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%);
+    margin-top: 6px;
+    margin-bottom: 0;
+    padding: 10px 12px;
 }
 
 /* ---------------- CARDS ---------------- */
@@ -278,7 +281,7 @@ body {
 
 /* ---------------- CLUSTER GROUPS ---------------- */
 .cluster-group-section {
-    margin-bottom: 12px;
+    margin-bottom: 4px;
     page-break-inside: avoid;
 }
 
@@ -289,14 +292,14 @@ body {
 }
 
 .cluster-group-item {
-    margin-bottom: 8px;
-    padding: 10px 12px;
+    margin-bottom: 4px;
+    padding: 8px 10px;
     background: #ffffff;
     background-image: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
     border-left: 3px solid #667eea;
     border-radius: 8px;
     font-size: 9pt;
-    line-height: 1.5;
+    line-height: 1.4;
     color: #2d3748;
 }
 
@@ -317,7 +320,7 @@ body {
     color: #4a5568;
     font-style: italic;
     font-size: 8.5pt;
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
 /* ---------------- PAGE BREAK ---------------- */
@@ -387,14 +390,14 @@ body {
 
 /* ---------------- SUMMARY PAGE ---------------- */
 .summary-page {
-    page-break-after: always;
+    padding-bottom: 0;
+    margin-bottom: 0;
 }
 
 .summary-page .test-report-section-title {
     font-size: 16pt;
-
-    margin-bottom: 12px;
-    padding-bottom: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
 }
 
 /* ---------------- TWO COLUMN LAYOUT FOR CLUSTERS/CONSTRUCTS ---------------- */
@@ -460,7 +463,7 @@ body {
 <div class="cover-page">
     @if(!empty($logoBase64))
         <div class="cover-logo">
-            <img src="data:image/png;base64,{{ $logoBase64 }}" style="max-width: 80%; height: auto;">
+            <img src="data:image/png;base64,{{ $logoBase64 }}" style="max-width: 50%; height: auto;">
         </div>
     @endif
 
@@ -514,58 +517,43 @@ body {
     <!-- ================= CLUSTER GROUPS (Between Summary and Guidance) ================= -->
     @if(isset($clusterScores) && is_array($clusterScores) && count($clusterScores) > 0)
         @php
-            $strengthsToLeverage = [
-                'Character & Moral Foundation',
-                'Personal Agency & Growth',
-                'Openness & Future Orientation'
-            ];
+            // Filter clusters by category
+            $strengthsClusters = array_filter($clusterScores, function($clusterData) {
+                return isset($clusterData['category']) && strtolower($clusterData['category']) === 'high';
+            });
             
-            $emergingCapabilities = [
-                'Caring & Self-Understanding',
-                'Drive & Achievement',
-                'Emotional Strength'
-            ];
-            
-            $strengthsClusters = array_filter($clusterScores, function($clusterName) use ($strengthsToLeverage) {
-                return in_array($clusterName, $strengthsToLeverage);
-            }, ARRAY_FILTER_USE_KEY);
-            
-            $emergingClusters = array_filter($clusterScores, function($clusterName) use ($emergingCapabilities) {
-                return in_array($clusterName, $emergingCapabilities);
-            }, ARRAY_FILTER_USE_KEY);
+            $emergingClusters = array_filter($clusterScores, function($clusterData) {
+                return isset($clusterData['category']) && in_array(strtolower($clusterData['category']), ['medium', 'low']);
+            });
         @endphp
 
         @if(count($strengthsClusters) > 0)
-            <div class="test-report-section cluster-group-section" style="margin-top: 10px;">
+            <div class="test-report-section cluster-group-section" style="margin-top: 4px;">
+                <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Strengths to Leverage:</div>
                 <ul class="cluster-group-list">
-                    @foreach($strengthsToLeverage as $clusterName)
-                        @if(isset($clusterScores[$clusterName]))
-                            @php $clusterData = $clusterScores[$clusterName]; @endphp
-                            <li class="cluster-group-item">
-                                <span class="cluster-name-in-list">{{ $clusterName }}</span>
-                                @if(isset($clusterData['behaviour']) && !empty($clusterData['behaviour']))
-                                    <div class="cluster-tendency-in-list">{{ $clusterData['behaviour'] }}</div>
-                                @endif
-                            </li>
-                        @endif
+                    @foreach($strengthsClusters as $clusterName => $clusterData)
+                        <li class="cluster-group-item">
+                            <span class="cluster-name-in-list">{{ $clusterName }}</span>
+                            @if(isset($clusterData['behaviour']) && !empty($clusterData['behaviour']))
+                                <div class="cluster-tendency-in-list">{{ $clusterData['behaviour'] }}</div>
+                            @endif
+                        </li>
                     @endforeach
                 </ul>
             </div>
         @endif
 
         @if(count($emergingClusters) > 0)
-            <div class="test-report-section cluster-group-section" style="margin-top: 8px;">
+            <div class="test-report-section cluster-group-section" style="margin-top: 3px;">
+                <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Emerging Capabilities & Development Priorities:</div>
                 <ul class="cluster-group-list">
-                    @foreach($emergingCapabilities as $clusterName)
-                        @if(isset($clusterScores[$clusterName]))
-                            @php $clusterData = $clusterScores[$clusterName]; @endphp
-                            <li class="cluster-group-item">
-                                <span class="cluster-name-in-list">{{ $clusterName }}</span>
-                                @if(isset($clusterData['behaviour']) && !empty($clusterData['behaviour']))
-                                    <div class="cluster-tendency-in-list">{{ $clusterData['behaviour'] }}</div>
-                                @endif
-                            </li>
-                        @endif
+                    @foreach($emergingClusters as $clusterName => $clusterData)
+                        <li class="cluster-group-item">
+                            <span class="cluster-name-in-list">{{ $clusterName }}</span>
+                            @if(isset($clusterData['behaviour']) && !empty($clusterData['behaviour']))
+                                <div class="cluster-tendency-in-list">{{ $clusterData['behaviour'] }}</div>
+                            @endif
+                        </li>
                     @endforeach
                 </ul>
             </div>
@@ -573,7 +561,7 @@ body {
     @endif
     
     @if(isset($sdbPercentage) && $sdbPercentage !== null && $sdbPercentage >= 90)
-        <div class="test-report-summary sdb-guidance" style="margin-top: 10px;">
+        <div class="test-report-summary sdb-guidance">
             <p style="font-size: 9pt; color:rgb(243, 55, 55); font-weight: bold; margin-bottom: 4px;">Guidance:</p>
             <p style="font-size: 9pt; color: #4a5568; line-height: 1.5; font-style: italic; margin: 0; font-weight: bold;">
             "This profile may benefit from further exploration to distinguish between current strengths and aspirational qualities. A follow-up conversation with a coach can help personalize these insights."
@@ -581,6 +569,9 @@ body {
         </div>
     @endif
 </div>
+
+<!-- ================= FULL REPORT STARTS HERE ================= -->
+<div class="page-break"></div>
 
 <!-- ================= CLUSTERS ================= -->
 @if(isset($clusterScores) && is_array($clusterScores) && count($clusterScores) > 0)

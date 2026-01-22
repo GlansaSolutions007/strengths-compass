@@ -16,13 +16,15 @@ class TestReport extends Model
         'report_summary',
         'recommendations',
         'report_file',
-        'generated_at'
+        'generated_at',
+        'email_sent_at'
     ];
 
     protected $casts = [
         'radar_data' => 'array',
         'application_matrix' => 'array',
         'generated_at' => 'datetime',
+        'email_sent_at' => 'datetime',
     ];
 
     /**

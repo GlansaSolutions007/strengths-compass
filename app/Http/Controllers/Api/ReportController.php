@@ -363,6 +363,145 @@ or medical concerns, consult a qualified professional. For any queries regarding
     }
 
     /**
+     * Generate and download short PDF report using mPDF (Cover + Summary + Guidance only)
+     * 
+     * @param int $testResultId
+     * @return \Illuminate\Http\Response|\Illuminate\Http\JsonResponse
+     */
+    public function downloadShortMpdfPdf($testResultId)
+    {
+        $testResult = TestResult::with([
+            'user',
+            'test',
+            'report'
+        ])->find($testResultId);
+
+        if (!$testResult) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'Test result not found',
+            ], 404);
+        }
+
+        // Get or create report
+        $report = $testResult->report;
+        
+        if (!$report) {
+            $report = TestReport::create([
+                'test_result_id' => $testResult->id,
+                'generated_at' => now(),
+            ]);
+        }
+
+        /* -----------------------------------------
+        BUILD DATA
+        ----------------------------------------- */
+
+        $clusterScores = $this->enrichClusterScores($testResult);
+
+        // Sort by priority: High > Medium > Low
+        $clusterScores = $this->sortByPriority($clusterScores);
+
+        // Get logo as base64
+        $logoBase64 = $this->getLogoBase64();
+
+        // Get user name for filename
+        $userName = $testResult->user->name ?? 
+                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
+                   'user';
+
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
+
+        $data = [
+            'user'                       => $testResult->user,
+            'testResult'                 => $testResult,
+            'test'                        => $testResult->test,
+            'report'                      => $report,
+            'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
+            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'clusterScores'              => $clusterScores,
+            'reportSummary'              => $report->report_summary ?? null,
+            'logoBase64'                 => $logoBase64,
+            'sdbPercentage'              => $sdbPercentage,
+        ];
+
+        // Generate HTML content from short report view
+        $html = view('reports.mpdf-short-report', $data)->render();
+
+        // Generate PDF using mPDF
+        try {
+            // Set up mPDF configuration
+            $defaultConfig = (new ConfigVariables())->getDefaults();
+            $fontDirs = $defaultConfig['fontDir'];
+            $defaultFontConfig = (new FontVariables())->getDefaults();
+            $fontData = $defaultFontConfig['fontdata'];
+
+            $mpdf = new Mpdf([
+                'mode' => 'utf-8',
+                'format' => 'A4',
+                'orientation' => 'P',
+                'margin_left' => 15,
+                'margin_right' => 15,
+                'margin_top' => 15,
+                'margin_bottom' => 15,
+                'margin_header' => 10,
+                'margin_footer' => 10,
+                'tempDir' => storage_path('app/temp'),
+            ]);
+
+            // Set metadata
+            $mpdf->SetTitle('Strengths Compass Short Report');
+            $mpdf->SetAuthor('Axis Strengths Compass');
+            $mpdf->SetCreator('Strengths Compass System');
+
+            // Set footer on every page
+            $footerHtml = '
+            <div style="
+                font-size: 7pt;
+                color: #6c757d;
+                text-align: center;
+                line-height: 1.2;
+                padding: 8px 10px;
+                border-top: 1px solid #e9ecef;
+            ">
+            <p><b>Disclaimer:</b></p>
+                You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported
+tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health
+or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b>
+            </div>';
+            
+            $mpdf->SetHTMLFooter($footerHtml);
+
+            // Write HTML content
+            $mpdf->WriteHTML($html);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'Failed to generate PDF: ' . $e->getMessage(),
+                'error' => $e->getTraceAsString(),
+            ], 500);
+        }
+
+        // Generate filename with user name
+        $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
+        $filename = 'strengths-compass-short-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+
+        // Get PDF output
+        $pdfOutput = $mpdf->Output('', 'S');
+
+        // Return PDF download response with proper headers
+        return response($pdfOutput, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->header('Content-Length', strlen($pdfOutput));
+    }
+
+    /**
      * View PDF report in browser
      */
     public function viewPdf($testResultId)
@@ -2028,7 +2167,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     }
 
     /**
-     * Generate PDF reports and send via email to multiple users (bulk)
+     * Generate PDF reports and send via email for multiple test results (bulk)
      * 
      * @param Request $request
      * @return \Illuminate\Http\JsonResponse
@@ -2036,10 +2175,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     public function sendBulkPdfByEmail(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'user_ids' => 'required|array',
-            'user_ids.*' => 'required|integer|exists:users,id',
-            'test_result_id' => 'nullable|integer|exists:test_results,id', // Optional: specific test result for all users
-            'send_latest_only' => 'nullable|boolean', // If true, send only latest test result per user
+            'test_result_ids' => 'required|array',
+            'test_result_ids.*' => 'required|integer|exists:test_results,id',
+            'pdf_type' => 'required|string|in:short,full,both', // PDF type: short, full, or both
         ]);
 
         if ($validator->fails()) {
@@ -2051,9 +2189,8 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             ], 422);
         }
 
-        $userIds = $request->input('user_ids');
-        $specificTestResultId = $request->input('test_result_id');
-        $sendLatestOnly = $request->input('send_latest_only', true);
+        $testResultIds = $request->input('test_result_ids');
+        $pdfType = $request->input('pdf_type', 'full'); // short, full, or both
 
         $results = [
             'success' => [],
@@ -2063,96 +2200,58 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             'failed_count' => 0,
         ];
 
-        foreach ($userIds as $userId) {
+        foreach ($testResultIds as $testResultId) {
             try {
-                // If specific test result ID is provided, use it for all users
-                if ($specificTestResultId) {
-                    $testResult = TestResult::with(['user', 'test', 'report'])
-                        ->where('id', $specificTestResultId)
-                        ->where('user_id', $userId)
-                        ->first();
+                $testResult = TestResult::with(['user', 'test', 'report'])
+                    ->find($testResultId);
 
-                    if ($testResult) {
-                        $emailResult = $this->sendPdfEmailForTestResult($testResult);
-                        if ($emailResult['success']) {
-                            $results['success'][] = [
-                                'user_id' => $userId,
-                                'user_email' => $testResult->user->email ?? null,
-                                'test_result_id' => $testResult->id,
-                                'message' => $emailResult['message'],
-                            ];
-                            $results['success_count']++;
-                        } else {
-                            $results['failed'][] = [
-                                'user_id' => $userId,
-                                'user_email' => $testResult->user->email ?? null,
-                                'test_result_id' => $testResult->id,
-                                'error' => $emailResult['message'],
-                            ];
-                            $results['failed_count']++;
-                        }
-                        $results['total']++;
-                    } else {
-                        $results['failed'][] = [
-                            'user_id' => $userId,
-                            'error' => 'Test result not found for this user',
-                        ];
-                        $results['failed_count']++;
-                        $results['total']++;
-                    }
-                } else {
-                    // Get test results for this user
-                    $query = TestResult::with(['user', 'test', 'report'])
-                        ->where('user_id', $userId);
-
-                    if ($sendLatestOnly) {
-                        $testResults = $query->orderBy('created_at', 'desc')->limit(1)->get();
-                    } else {
-                        $testResults = $query->orderBy('created_at', 'desc')->get();
-                    }
-
-                    if ($testResults->isEmpty()) {
-                        $results['failed'][] = [
-                            'user_id' => $userId,
-                            'error' => 'No test results found for this user',
-                        ];
-                        $results['failed_count']++;
-                        $results['total']++;
-                        continue;
-                    }
-
-                    // Send email for each test result
-                    foreach ($testResults as $testResult) {
-                        $emailResult = $this->sendPdfEmailForTestResult($testResult);
-                        if ($emailResult['success']) {
-                            $results['success'][] = [
-                                'user_id' => $userId,
-                                'user_email' => $testResult->user->email ?? null,
-                                'test_result_id' => $testResult->id,
-                                'message' => $emailResult['message'],
-                            ];
-                            $results['success_count']++;
-                        } else {
-                            $results['failed'][] = [
-                                'user_id' => $userId,
-                                'user_email' => $testResult->user->email ?? null,
-                                'test_result_id' => $testResult->id,
-                                'error' => $emailResult['message'],
-                            ];
-                            $results['failed_count']++;
-                        }
-                        $results['total']++;
-                    }
+                if (!$testResult) {
+                    $results['failed'][] = [
+                        'test_result_id' => $testResultId,
+                        'error' => 'Test result not found',
+                    ];
+                    $results['failed_count']++;
+                    $results['total']++;
+                    continue;
                 }
+
+                // Send email for this test result
+                $emailResult = $this->sendPdfEmailForTestResult($testResult, $pdfType);
+                
+                if ($emailResult['success']) {
+                    // Refresh report to get updated email_sent_at
+                    $testResult->report->refresh();
+                    
+                    $results['success'][] = [
+                        'test_result_id' => $testResult->id,
+                        'user_id' => $testResult->user_id,
+                        'user_email' => $testResult->user->email ?? null,
+                        'user_name' => $testResult->user->name ?? 
+                                     trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')),
+                        'email_sent_at' => $testResult->report->email_sent_at ? $testResult->report->email_sent_at->toISOString() : null,
+                        'message' => $emailResult['message'],
+                    ];
+                    $results['success_count']++;
+                } else {
+                    $results['failed'][] = [
+                        'test_result_id' => $testResult->id,
+                        'user_id' => $testResult->user_id,
+                        'user_email' => $testResult->user->email ?? null,
+                        'error' => $emailResult['message'],
+                    ];
+                    $results['failed_count']++;
+                }
+                $results['total']++;
+
             } catch (\Exception $e) {
-                \Log::error('Bulk PDF Email error for user', [
-                    'user_id' => $userId,
+                \Log::error('Bulk PDF Email error for test result', [
+                    'test_result_id' => $testResultId,
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString(),
                 ]);
 
                 $results['failed'][] = [
-                    'user_id' => $userId,
+                    'test_result_id' => $testResultId,
                     'error' => 'Failed to process: ' . $e->getMessage(),
                 ];
                 $results['failed_count']++;
@@ -2176,9 +2275,10 @@ be influenced by context, mood, and self perception. Use them as a starting poin
      * Helper method to send PDF email for a specific test result
      * 
      * @param TestResult $testResult
+     * @param string $pdfType 'short', 'full', or 'both'
      * @return array
      */
-    private function sendPdfEmailForTestResult($testResult)
+    private function sendPdfEmailForTestResult($testResult, $pdfType = 'full')
     {
         try {
             if (!$testResult->user || !$testResult->user->email) {
@@ -2219,145 +2319,173 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             // Calculate SDB scores
             $sdbScores = $this->calculateSDBScores($testResult);
             $sdbPercentage = $sdbScores['percentage'] ?? null;
-            $radarClusterSvg = $this->generateRadarChartSvg($clusterScores);
-            $radarConstructSvg = $this->generateRadarChartSvg($constructScores);
 
-            $data = [
-                'user'                       => $testResult->user,
-                'testResult'                 => $testResult,
-                'test'                        => $testResult->test,
-                'report'                      => $report,
-                'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-                'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
-                'clusterScores'              => $clusterScores,
-                'constructScores'            => $constructScores,
-                'reportSummary'              => $report->report_summary ?? null,
-                'logoBase64'                 => $logoBase64,
-                'radarClusterChartBase64'    => $radarClusterSvg,
-                'radarConstructChartBase64'  => $radarConstructSvg,
-                'sdbPercentage'              => $sdbPercentage,
-            ];
+            // Get user name for filename
+            $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
 
             /* -----------------------------------------
-            GENERATE PDF
+            GENERATE PDF(s) USING mPDF
             ----------------------------------------- */
 
-            $pdf = \Barryvdh\Snappy\Facades\SnappyPdf::loadView(
-                'reports.snappy-report',
-                $data
-            )
-            ->setPaper('a4')
-            ->setOrientation('portrait')
-            ->setOption('encoding', 'UTF-8')
-            ->setOption('enable-local-file-access', true)
-            ->setOption('margin-top', '22mm')
-            ->setOption('margin-bottom', '22mm')
-            ->setOption('margin-left', '15mm')
-            ->setOption('margin-right', '15mm');
-
-            /* ---------- HEADER (EVERY PAGE EXCEPT FIRST) ---------- */
-            $headerHtml = '';
-            if (!empty($logoBase64)) {
-                $headerHtml = '
-                <div style="
-                    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-                    padding: 15px 0;
-                    border-bottom: 2px solid #e9ecef;
-                    text-align: center;
-                    width: 100%;
-                ">
-                    <img src="data:image/png;base64,' . $logoBase64 . '" alt="Strengths Compass Logo" style="max-width: 160px; height: auto; display: inline-block;" />
-                </div>';
-            }
-
-            if (!empty($headerHtml)) {
-                $pdf->setOption('header-html', $headerHtml);
-                $pdf->setOption('header-spacing', 5);
-            }
-
-            /* ---------- FOOTER (EVERY PAGE) ---------- */
+            $pdfAttachments = [];
             $footerHtml = '
             <div style="
-                font-size:8pt;
-                color:#718096;
-                padding:8px 15px;
-                border-top:1px solid #e2e8f0;
-                line-height:1.4;
-                font-family: Arial, Helvetica, sans-serif;
+                font-size: 7pt;
+                color: #6c757d;
+                text-align: center;
+                line-height: 1.2;
+                padding: 8px 10px;
+                border-top: 1px solid #e9ecef;
             ">
-                <div style="margin-top:4px;font-size:7pt;color:#a0aec0;text-align:center;">
-                Disclaimer<br>
-                   You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported tendencies. These results may
-be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health or medical concerns, consult a qualified professional.
-                   For any queries regarding the report, please send an email to: <strong>guide@axiscompass.in</strong>
-                </div>
+            <p><b>Disclaimer:</b></p>
+                You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported
+tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health
+or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b>
             </div>';
 
-            $pdf->setOption('footer-html', $footerHtml);
-            $pdf->setOption('footer-spacing', 5);
+            // Set up mPDF configuration
+            $defaultConfig = (new ConfigVariables())->getDefaults();
+            $fontDirs = $defaultConfig['fontDir'];
+            $defaultFontConfig = (new FontVariables())->getDefaults();
+            $fontData = $defaultFontConfig['fontdata'];
 
-            // Create filename with user name
-            $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-            $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
-            $output   = $pdf->output();
+            // Generate Short PDF if needed
+            if ($pdfType === 'short' || $pdfType === 'both') {
+                $shortData = [
+                    'user'                       => $testResult->user,
+                    'testResult'                 => $testResult,
+                    'test'                        => $testResult->test,
+                    'report'                      => $report,
+                    'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
+                    'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+                    'clusterScores'              => $clusterScores,
+                    'reportSummary'              => $report->report_summary ?? null,
+                    'logoBase64'                 => $logoBase64,
+                    'sdbPercentage'              => $sdbPercentage,
+                ];
 
-            // Save PDF to storage
-            Storage::disk('public')->put('reports/' . $filename, $output);
+                $shortHtml = view('reports.mpdf-short-report', $shortData)->render();
 
-            $report->update([
-                'report_file' => 'reports/' . $filename,
-                'generated_at' => now(),
-            ]);
+                $shortMpdf = new Mpdf([
+                    'mode' => 'utf-8',
+                    'format' => 'A4',
+                    'orientation' => 'P',
+                    'margin_left' => 15,
+                    'margin_right' => 15,
+                    'margin_top' => 15,
+                    'margin_bottom' => 15,
+                    'margin_header' => 10,
+                    'margin_footer' => 10,
+                    'tempDir' => storage_path('app/temp'),
+                ]);
+
+                $shortMpdf->SetTitle('Strengths Compass Short Report');
+                $shortMpdf->SetAuthor('Axis Strengths Compass');
+                $shortMpdf->SetCreator('Strengths Compass System');
+                $shortMpdf->SetHTMLFooter($footerHtml);
+                $shortMpdf->WriteHTML($shortHtml);
+
+                $shortFilename = 'strengths-compass-short-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+                $shortOutput = $shortMpdf->Output('', 'S');
+                $pdfAttachments[] = [
+                    'data' => $shortOutput,
+                    'filename' => $shortFilename,
+                ];
+            }
+
+            // Generate Full PDF if needed
+            if ($pdfType === 'full' || $pdfType === 'both') {
+                $radarClusterImage = $this->generateRadarmpdfChartSvg($clusterScores);
+                $radarConstructImage = $this->generateRadarmpdfChartSvg($constructScores);
+
+                $fullData = [
+                    'user'                       => $testResult->user,
+                    'testResult'                 => $testResult,
+                    'test'                        => $testResult->test,
+                    'report'                      => $report,
+                    'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
+                    'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+                    'clusterScores'              => $clusterScores,
+                    'constructScores'            => $constructScores,
+                    'reportSummary'              => $report->report_summary ?? null,
+                    'logoBase64'                 => $logoBase64,
+                    'radarClusterChartBase64'    => $radarClusterImage,
+                    'radarConstructChartBase64'  => $radarConstructImage,
+                    'sdbPercentage'              => $sdbPercentage,
+                ];
+
+                $fullHtml = view('reports.mpdf-report', $fullData)->render();
+
+                $fullMpdf = new Mpdf([
+                    'mode' => 'utf-8',
+                    'format' => 'A4',
+                    'orientation' => 'P',
+                    'margin_left' => 15,
+                    'margin_right' => 15,
+                    'margin_top' => 15,
+                    'margin_bottom' => 15,
+                    'margin_header' => 10,
+                    'margin_footer' => 10,
+                    'tempDir' => storage_path('app/temp'),
+                ]);
+
+                $fullMpdf->SetTitle('Strengths Compass Report');
+                $fullMpdf->SetAuthor('Axis Strengths Compass');
+                $fullMpdf->SetCreator('Strengths Compass System');
+                $fullMpdf->SetHTMLFooter($footerHtml);
+                $fullMpdf->WriteHTML($fullHtml);
+
+                $fullFilename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+                $fullOutput = $fullMpdf->Output('', 'S');
+                $pdfAttachments[] = [
+                    'data' => $fullOutput,
+                    'filename' => $fullFilename,
+                ];
+
+                // Save full PDF to storage
+                Storage::disk('public')->put('reports/' . $fullFilename, $fullOutput);
+                $report->update([
+                    'report_file' => 'reports/' . $fullFilename,
+                    'generated_at' => now(),
+                ]);
+            }
 
             /* -----------------------------------------
-            SEND EMAIL WITH PDF ATTACHMENT
+            SEND EMAIL WITH PDF ATTACHMENT(S)
             ----------------------------------------- */
+
+            if (empty($pdfAttachments)) {
+                return [
+                    'success' => false,
+                    'message' => 'No PDF generated. Invalid pdf_type specified.',
+                ];
+            }
 
             $userEmail = $testResult->user->email;
             $userDisplayName = $userName;
             $testName = $testResult->test->title ?? 'Strengths Assessment';
 
-            Mail::send([], [], function ($message) use ($userEmail, $userDisplayName, $output, $filename, $testName) {
+            // Build email content based on PDF type
+            $emailContent = $this->buildEmailContent($userDisplayName, $testName, $pdfType);
+
+            Mail::send([], [], function ($message) use ($userEmail, $userDisplayName, $pdfAttachments, $testName, $emailContent) {
                 $message->to($userEmail, $userDisplayName)
-                    ->subject('Your Strengths Compass Assessment Report - ' . $testName)
-                    ->attachData($output, $filename, [
+                    ->subject('Your Strengths Compass Assessment Report - ' . $testName);
+
+                // Attach all PDFs
+                foreach ($pdfAttachments as $attachment) {
+                    $message->attachData($attachment['data'], $attachment['filename'], [
                         'mime' => 'application/pdf',
-                    ])
-                    ->html('
-                        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
-                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
-                                <h1 style="margin: 0; font-size: 24px;">Axis Strengths Compass</h1>
-                                <p style="margin: 10px 0 0 0; opacity: 0.9;">Assessment Report</p>
-                            </div>
-                            <div style="padding: 30px; background: #ffffff;">
-                                <h2 style="color: #667eea; margin-top: 0;">Your Assessment Report is Ready</h2>
-                                <p>Dear ' . htmlspecialchars($userDisplayName) . ',</p>
-                                <p>Thank you for completing the Strengths Compass Assessment. Your personalized report is attached to this email.</p>
-                                <p>The report contains detailed insights about your strengths across six clusters and 18 psychological constructs, along with radar charts and personalized recommendations.</p>
-                                <p><strong>Please review the attached PDF report for your complete assessment results.</strong></p>
-                                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                                    <p style="margin: 0; color: #555; font-size: 14px;">
-                                        <strong>What\'s included in your report:</strong>
-                                    </p>
-                                    <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #555;">
-                                        <li>Cluster-level analysis with priority bands</li>
-                                        <li>Construct-level detailed insights</li>
-                                        <li>Visual radar charts</li>
-                                        <li>Personalized tendencies and recommendations</li>
-                                    </ul>
-                                </div>
-                                <p>If you have any questions or need further clarification, please feel free to contact us at <strong>guide@axiscompass.in</strong>.</p>
-                                <p style="margin-top: 30px;">
-                                    Best regards,<br>
-                                    <strong>Axis Strengths Compass Team</strong>
-                                </p>
-                            </div>
-                            <div style="background: #f8f9fa; padding: 20px; text-align: center; color: #777; font-size: 12px; border-top: 1px solid #e9ecef;">
-                                <p style="margin: 0;">This is an automated email. Please do not reply to this message.</p>
-                            </div>
-                        </div>
-                    ');
+                    ]);
+                }
+
+                $message->html($emailContent);
             });
+
+            // Update email_sent_at status after successful email send
+            $report->update([
+                'email_sent_at' => now(),
+            ]);
 
             return [
                 'success' => true,
@@ -2532,6 +2660,73 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 'name' => 'UNKNOWN',
             ];
         }
+    }
+
+    /**
+     * Build email content based on PDF type
+     * 
+     * @param string $userDisplayName
+     * @param string $testName
+     * @param string $pdfType 'short', 'full', or 'both'
+     * @return string
+     */
+    private function buildEmailContent($userDisplayName, $testName, $pdfType)
+    {
+        $reportDescription = '';
+        $reportItems = '';
+
+        if ($pdfType === 'short') {
+            $reportDescription = 'Your short report contains a summary of your assessment results, including cluster-level insights and personalized guidance.';
+            $reportItems = '
+                <li>Cover page with your details</li>
+                <li>Report summary with cluster overview</li>
+                <li>Strengths to Leverage and Emerging Capabilities</li>
+                <li>Personalized guidance (if applicable)</li>';
+        } elseif ($pdfType === 'full') {
+            $reportDescription = 'Your complete report contains detailed insights about your strengths across six clusters and 18 psychological constructs, along with radar charts and personalized recommendations.';
+            $reportItems = '
+                <li>Cover page with your details</li>
+                <li>Report summary with cluster overview</li>
+                <li>Detailed cluster-level analysis with priority bands</li>
+                <li>Construct-level detailed insights</li>
+                <li>Visual radar charts</li>
+                <li>Personalized tendencies and recommendations</li>';
+        } else { // both
+            $reportDescription = 'Your reports contain both a quick summary and a detailed analysis of your assessment results.';
+            $reportItems = '
+                <li><strong>Short Report:</strong> Cover page, summary, cluster overview, and guidance</li>
+                <li><strong>Full Report:</strong> All of the above plus detailed cluster/construct analysis and radar charts</li>';
+        }
+
+        return '
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
+                    <h1 style="margin: 0; font-size: 24px;">Axis Strengths Compass</h1>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9;">Assessment Report</p>
+                </div>
+                <div style="padding: 30px; background: #ffffff;">
+                    <h2 style="color: #667eea; margin-top: 0;">Your Assessment Report is Ready</h2>
+                    <p>Dear ' . htmlspecialchars($userDisplayName) . ',</p>
+                    <p>Thank you for completing the Strengths Compass Assessment. Your personalized report' . ($pdfType === 'both' ? 's are' : ' is') . ' attached to this email.</p>
+                    <p>' . $reportDescription . '</p>
+                    <p><strong>Please review the attached PDF report' . ($pdfType === 'both' ? 's' : '') . ' for your complete assessment results.</strong></p>
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <p style="margin: 0; color: #555; font-size: 14px;">
+                            <strong>What\'s included in your report' . ($pdfType === 'both' ? 's' : '') . ':</strong>
+                        </p>
+                        <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #555;">' . $reportItems . '
+                        </ul>
+                    </div>
+                    <p>If you have any questions or need further clarification, please feel free to contact us at <strong>guide@axiscompass.in</strong>.</p>
+                    <p style="margin-top: 30px;">
+                        Best regards,<br>
+                        <strong>Axis Strengths Compass Team</strong>
+                    </p>
+                </div>
+                <div style="background: #f8f9fa; padding: 20px; text-align: center; color: #777; font-size: 12px; border-top: 1px solid #e9ecef;">
+                    <p style="margin: 0;">This is an automated email. Please do not reply to this message.</p>
+                </div>
+            </div>';
     }
 }
 
