@@ -160,7 +160,8 @@ Route::get('test-results-comprehensive/export', [TestTakingController::class, 'd
 // Report routes
 Route::get('test-results/{testResultId}/report', [ReportController::class, 'getReport']); // Get report data for a test result
 Route::post('test-results/{testResultId}/report/pdf', [ReportController::class, 'storePdf']); // Store PDF file from frontend
-Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report
+Route::get('test-results/{testResultId}/report/pdf', [ReportController::class, 'downloadPdf']); // Download PDF report (dompdf)
+Route::get('test-results/{testResultId}/report/pdf/mpdf', [ReportController::class, 'downloadMpdfPdf']); // Download PDF report using mPDF
 Route::get('test-results/{testResultId}/report/pdf/short', [ReportController::class, 'downloadShortPdf']); // Download short PDF report (clusters and constructs with bands)
 Route::get('test-results/{testResultId}/report/pdf/snappy', [ReportController::class, 'downloadSnappyPdf']); // Download PDF report using Snappy (wkhtmltopdf)
 Route::post('test-results/{testResultId}/report/pdf/email', [ReportController::class, 'sendPdfByEmail']); // Send PDF report via email to user

@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Mpdf\Mpdf;
+use Mpdf\Config\ConfigVariables;
+use Mpdf\Config\FontVariables;
 
 class ReportController extends Controller
 {
@@ -95,7 +98,7 @@ class ReportController extends Controller
     {
         $testResult = TestResult::with([
             'user',
-            'test.clusters.constructs',
+            'test',
             'report'
         ])->find($testResultId);
 
@@ -117,31 +120,53 @@ class ReportController extends Controller
             ]);
         }
 
-        $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
-        $radarChart = $this->buildRadarChartData($clusterInsights);
-        $clusterDetails = $this->buildClusterDetails($testResult);
-        $constructDetails = $this->buildConstructDetails($clusterDetails);
+        /* -----------------------------------------
+        BUILD DATA
+        ----------------------------------------- */
 
-        // Prepare data for PDF
+        $clusterScores   = $this->enrichClusterScores($testResult);
+        $constructScores = $this->enrichConstructScores($testResult);
+
+        // Sort by priority: High > Medium > Low
+        $clusterScores = $this->sortByPriority($clusterScores);
+        $constructScores = $this->sortByPriority($constructScores);
+
+        // Get logo as base64
+        $logoBase64 = $this->getLogoBase64();
+
+        // Get user name for filename
+        $userName = $testResult->user->name ?? 
+                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
+                   'user';
+
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
+
+        $radarClusterSvg = $this->generateRadarChartSvg($clusterScores);
+        $radarConstructSvg = $this->generateRadarChartSvg($constructScores);
+
         $data = [
-            'testResult' => $testResult,
-            'report' => $report,
-            'user' => $testResult->user,
-            'test' => $testResult->test,
-            'clusterScores' => $testResult->cluster_scores,
-            'constructScores' => $testResult->construct_scores,
-            'totalScore' => $testResult->total_score,
-            'averageScore' => $testResult->average_score,
-            'clusterInsights' => $clusterInsights,
-            'radarChartData' => $radarChart,
-            'clusterDetails' => $clusterDetails,
-            'constructDetails' => $constructDetails,
+            'user'                       => $testResult->user,
+            'testResult'                 => $testResult,
+            'test'                        => $testResult->test,
+            'report'                      => $report,
+            'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
+            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'clusterScores'              => $clusterScores,
+            'constructScores'            => $constructScores,
+            'reportSummary'              => $report->report_summary ?? null,
+            'logoBase64'                 => $logoBase64,
+            'radarClusterChartBase64'    => $radarClusterSvg,
+            'radarConstructChartBase64'  => $radarConstructSvg,
+            'sdbPercentage'              => $sdbPercentage,
+            'isDompdf'                   => true, // Flag for dompdf-specific styling
         ];
 
         // Generate PDF using container binding (more reliable than facade)
         try {
             $pdf = App::make('dompdf.wrapper');
-            $pdf->loadView('reports.test-report', $data);
+            $pdf->loadView('reports.dompdf-report', $data);
             $pdf->setPaper('a4', 'portrait');
             $pdf->setOption('enable-local-file-access', true);
             $pdf->setOption('isHtml5ParserEnabled', true);
@@ -155,11 +180,170 @@ class ReportController extends Controller
             ], 500);
         }
 
-        // Generate filename
-        $filename = 'test-report-' . $testResult->id . '-' . now()->format('Y-m-d') . '.pdf';
+        // Generate filename with user name
+        $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
+        $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
 
         // Get PDF output
         $pdfOutput = $pdf->output();
+
+        // Save PDF to storage (optional - for later retrieval)
+        $pdfPath = 'reports/' . $filename;
+        Storage::disk('public')->put($pdfPath, $pdfOutput);
+
+        // Update report with file path
+        $report->update([
+            'report_file' => $pdfPath,
+            'generated_at' => now(),
+        ]);
+
+        // Return PDF download response with proper headers
+        return response($pdfOutput, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->header('Content-Length', strlen($pdfOutput));
+    }
+
+    /**
+     * Generate and download PDF report using mPDF
+     * 
+     * @param int $testResultId
+     * @return \Illuminate\Http\Response|\Illuminate\Http\JsonResponse
+     */
+    public function downloadMpdfPdf($testResultId)
+    {
+        $testResult = TestResult::with([
+            'user',
+            'test',
+            'report'
+        ])->find($testResultId);
+
+        if (!$testResult) {
+            return response()->json([
+                'data' => [],
+                'status' => 404,
+                'message' => 'Test result not found',
+            ], 404);
+        }
+
+        // Get or create report
+        $report = $testResult->report;
+        
+        if (!$report) {
+            $report = TestReport::create([
+                'test_result_id' => $testResult->id,
+                'generated_at' => now(),
+            ]);
+        }
+
+        /* -----------------------------------------
+        BUILD DATA
+        ----------------------------------------- */
+
+        $clusterScores   = $this->enrichClusterScores($testResult);
+        $constructScores = $this->enrichConstructScores($testResult);
+
+        // Sort by priority: High > Medium > Low
+        $clusterScores = $this->sortByPriority($clusterScores);
+        $constructScores = $this->sortByPriority($constructScores);
+
+        // Get logo as base64
+        $logoBase64 = $this->getLogoBase64();
+
+        // Get user name for filename
+        $userName = $testResult->user->name ?? 
+                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
+                   'user';
+
+        // Calculate SDB scores
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
+
+        // For mPDF, use SVG optimized for mPDF rendering
+        $radarClusterImage = $this->generateRadarmpdfChartSvg($clusterScores);
+        $radarConstructImage = $this->generateRadarmpdfChartSvg($constructScores);
+
+        $data = [
+            'user'                       => $testResult->user,
+            'testResult'                 => $testResult,
+            'test'                        => $testResult->test,
+            'report'                      => $report,
+            'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
+            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'clusterScores'              => $clusterScores,
+            'constructScores'            => $constructScores,
+            'reportSummary'              => $report->report_summary ?? null,
+            'logoBase64'                 => $logoBase64,
+            'radarClusterChartBase64'    => $radarClusterImage,
+            'radarConstructChartBase64'  => $radarConstructImage,
+            'sdbPercentage'              => $sdbPercentage,
+        ];
+
+        // Generate HTML content from view
+        $html = view('reports.mpdf-report', $data)->render();
+
+        // Generate PDF using mPDF
+        try {
+            // Set up mPDF configuration
+            $defaultConfig = (new ConfigVariables())->getDefaults();
+            $fontDirs = $defaultConfig['fontDir'];
+            $defaultFontConfig = (new FontVariables())->getDefaults();
+            $fontData = $defaultFontConfig['fontdata'];
+
+            $mpdf = new Mpdf([
+                'mode' => 'utf-8',
+                'format' => 'A4',
+                'orientation' => 'P',
+                'margin_left' => 15,
+                'margin_right' => 15,
+                'margin_top' => 15,
+                'margin_bottom' => 15,
+                'margin_header' => 10,
+                'margin_footer' => 10,
+                'tempDir' => storage_path('app/temp'),
+            ]);
+
+            // Set metadata
+            $mpdf->SetTitle('Strengths Compass Report');
+            $mpdf->SetAuthor('Axis Strengths Compass');
+            $mpdf->SetCreator('Strengths Compass System');
+
+            // Set footer on every page
+            $footerHtml = '
+            <div style="
+                font-size: 7pt;
+                color: #6c757d;
+                text-align: center;
+                line-height: 1.2;
+                padding: 8px 10px;
+                border-top: 1px solid #e9ecef;
+            ">
+            <p><b>Disclaimer:</b></p>
+                You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported
+tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health
+or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b>
+            </div>';
+            
+            $mpdf->SetHTMLFooter($footerHtml);
+
+            // Write HTML content
+            $mpdf->WriteHTML($html);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [],
+                'status' => 500,
+                'message' => 'Failed to generate PDF: ' . $e->getMessage(),
+                'error' => $e->getTraceAsString(),
+            ], 500);
+        }
+
+        // Generate filename with user name
+        $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
+        $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+
+        // Get PDF output
+        $pdfOutput = $mpdf->Output('', 'S');
 
         // Save PDF to storage (optional - for later retrieval)
         $pdfPath = 'reports/' . $filename;
@@ -747,11 +931,11 @@ class ReportController extends Controller
         $enriched = [];
         foreach ($clusterScores as $clusterName => $scoreData) {
             $clusterInfo = $clusterDetailsMap[$clusterName] ?? null;
-            
+
             if (is_array($scoreData)) {
                 $category = strtolower($scoreData['category'] ?? '');
                 $behaviour = null;
-                
+
                 // Get the appropriate behaviour based on category
                 if ($clusterInfo) {
                     switch ($category) {
@@ -767,10 +951,15 @@ class ReportController extends Controller
                     }
                 }
 
+                // Calculate percentage from average score
+                $average = $scoreData['average'] ?? 0;
+                $percentage = $this->convertScoreToPercentage($average);
+
                 $enriched[$clusterName] = array_merge($scoreData, [
                     'description' => $clusterInfo['description'] ?? null,
                     'area' => $clusterInfo['area'] ?? ($scoreData['area'] ?? null),
                     'behaviour' => $behaviour,
+                    'percentage' => $percentage,
                 ]);
             } else {
                 // If score is not an array, keep it as is but add description if available
@@ -823,11 +1012,11 @@ class ReportController extends Controller
         $enriched = [];
         foreach ($constructScores as $constructName => $scoreData) {
             $constructInfo = $constructDetailsMap[$constructName] ?? null;
-            
+
             if (is_array($scoreData)) {
                 $category = strtolower($scoreData['category'] ?? '');
                 $behaviour = null;
-                
+
                 // Get the appropriate behaviour based on category
                 if ($constructInfo) {
                     switch ($category) {
@@ -843,10 +1032,15 @@ class ReportController extends Controller
                     }
                 }
 
+                // Calculate percentage from average score
+                $average = $scoreData['average'] ?? 0;
+                $percentage = $this->convertScoreToPercentage($average);
+
                 $enriched[$constructName] = array_merge($scoreData, [
                     'description' => $constructInfo['description'] ?? null,
                     'behaviour' => $behaviour,
                     'cluster_name' => $constructInfo['cluster_name'] ?? null,
+                    'percentage' => $percentage,
                 ]);
             } else {
                 // If score is not an array, keep it as is but add description if available
@@ -1377,14 +1571,162 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     
         return implode('', $svg);
     }
+
+    /**
+     * Generate radar chart SVG optimized for mPDF
+     * Creates SVG with proper formatting for mPDF rendering
+     *
+     * @param array $scores
+     * @return string SVG string
+     */
+    private function generateRadarmpdfChartSvg(array $scores): string
+    {
+        if (empty($scores)) {
+            return '';
+        }
+    
+        /* ================================
+           CONFIG (FOR MANY CONSTRUCTS)
+           ================================ */
+        $size        = 900;   // Bigger canvas
+        $center      = 450;
+        $radius      = 260;
+        $labelRadius = $radius + 55;
+    
+        $levels = [0, 20, 40, 60, 80, 100];
+    
+        $labelFontSize = 10;
+        $valueFontSize = 9;
+    
+        /* ================================
+           DATA PREP
+           ================================ */
+        $labels = array_keys($scores);
+    
+        $values = array_map(function ($v) {
+            if (is_array($v)) {
+                $v = $v['percentage'] ?? 0;
+            }
+            return (float) $v;
+        }, array_values($scores));
+    
+        $count = count($labels);
+        $angleStep = (2 * pi()) / max($count, 1);
+    
+        /* ================================
+           SVG START
+           ================================ */
+        $svg = [];
+    
+        // Start SVG with proper formatting for mPDF (no XML declaration when embedded in HTML)
+        $svg[] = "<svg width='{$size}' height='{$size}' viewBox='0 0 {$size} {$size}' xmlns='http://www.w3.org/2000/svg' style='display:block;margin:0 auto;'>";
+        $svg[] = "<rect x='0' y='0' width='{$size}' height='{$size}' fill='#ffffff'/>";
+    
+        /* ---------- GRID CIRCLES ---------- */
+        foreach ($levels as $level) {
+            $r = ($level / 100) * $radius;
+            if ($r > 0) { // Skip level 0 circle as it's just a point
+                $rFormatted = number_format($r, 2, '.', '');
+                $svg[] = "<circle cx='{$center}' cy='{$center}' r='{$rFormatted}' fill='none' stroke='#e5e7eb' stroke-width='1'/>";
+            }
+        }
+    
+        /* ---------- AXES + LABELS ---------- */
+        foreach ($labels as $i => $label) {
+            $value = round($values[$i]);
+            $angle = (-pi() / 2) + ($i * $angleStep);
+    
+            // Axis line
+            $x = $center + cos($angle) * $radius;
+            $y = $center + sin($angle) * $radius;
+            $xFormatted = number_format($x, 2, '.', '');
+            $yFormatted = number_format($y, 2, '.', '');
+            $svg[] = "<line x1='{$center}' y1='{$center}' x2='{$xFormatted}' y2='{$yFormatted}' stroke='#e5e7eb' stroke-width='1'/>";
+    
+            // Label position
+            $lx = $center + cos($angle) * $labelRadius;
+            $ly = $center + sin($angle) * $labelRadius;
+            $lxFormatted = number_format($lx, 2, '.', '');
+            $lyFormatted = number_format($ly, 2, '.', '');
+    
+            // Smart alignment
+            if (abs(cos($angle)) < 0.3) {
+                $anchor = 'middle';
+            } elseif (cos($angle) > 0) {
+                $anchor = 'start';
+            } else {
+                $anchor = 'end';
+            }
+    
+            // Truncate long labels (IMPORTANT)
+            $shortLabel = mb_strlen($label) > 18
+                ? mb_substr($label, 0, 18) . '…'
+                : $label;
+            
+            // Escape HTML entities in label
+            $shortLabelEscaped = htmlspecialchars($shortLabel, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+            $valueEscaped = htmlspecialchars($value . '%', ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    
+            // Calculate proper Y positions for text (SVG text uses baseline at y coordinate)
+            $labelY = number_format($lyFormatted - 6, 2, '.', '');
+            $valueY = number_format($lyFormatted + 8, 2, '.', '');
+            
+            // Label text
+            $svg[] = "<text x='{$lxFormatted}' y='{$labelY}' text-anchor='{$anchor}' font-family='DejaVu Sans, Arial, sans-serif' font-size='{$labelFontSize}' font-weight='bold' fill='#0f172a'>{$shortLabelEscaped}</text>";
+            
+            // Percentage value
+            $svg[] = "<text x='{$lxFormatted}' y='{$valueY}' text-anchor='{$anchor}' font-family='DejaVu Sans, Arial, sans-serif' font-size='{$valueFontSize}' font-weight='600' fill='#64748b'>{$valueEscaped}</text>";
+        }
+    
+        /* ---------- DATA POLYGON ---------- */
+        $points = [];
+        foreach ($values as $i => $value) {
+            $angle = (-pi() / 2) + ($i * $angleStep);
+            $r = ($value / 100) * $radius;
+            $x = $center + cos($angle) * $r;
+            $y = $center + sin($angle) * $r;
+            $points[] = number_format($x, 2, '.', '') . ',' . number_format($y, 2, '.', '');
+        }
+    
+        // Close polygon (MANDATORY for mPDF)
+        if (!empty($points)) {
+            $points[] = $points[0];
+            $pointsString = implode(' ', $points);
+            
+            // Use hex colors with fill-opacity for mPDF compatibility
+            $svg[] = "<polygon points='{$pointsString}' fill='#ff9800' fill-opacity='0.20' stroke='#ff9800' stroke-width='3'/>";
+        }
+    
+        /* ---------- POINT DOTS ---------- */
+        foreach ($values as $i => $value) {
+            $angle = (-pi() / 2) + ($i * $angleStep);
+            $r = ($value / 100) * $radius;
+            $x = $center + cos($angle) * $r;
+            $y = $center + sin($angle) * $r;
+            $xFormatted = number_format($x, 2, '.', '');
+            $yFormatted = number_format($y, 2, '.', '');
+    
+            $svg[] = "<circle cx='{$xFormatted}' cy='{$yFormatted}' r='4' fill='#ff9800' stroke='#ffffff' stroke-width='2'/>";
+        }
+    
+        /* ---------- RADIAL SCALE LABELS ---------- */
+        foreach ($levels as $level) {
+            if ($level > 0) { // Skip level 0 label as it's at the center
+                $y = $center - ($level / 100) * $radius;
+                $yFormatted = number_format($y, 2, '.', '');
+                $levelEscaped = htmlspecialchars($level, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+                $svg[] = "<text x='" . ($center + 10) . "' y='{$yFormatted}' font-size='11' fill='#6b7280' font-family='DejaVu Sans, Arial, sans-serif'>{$levelEscaped}</text>";
+            }
+        }
+    
+        $svg[] = "</svg>";
+    
+        return implode('', $svg);
+    }
     
 
-    
-    
-    
 
-    
-    
+
 
     /**
      * Get logo as base64 encoded string
