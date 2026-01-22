@@ -529,7 +529,7 @@ body {
 
         @if(count($strengthsClusters) > 0)
             <div class="test-report-section cluster-group-section" style="margin-top: 4px;">
-                <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Strengths to Leverage:</div>
+                <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Strengths to Leverage</div>
                 <ul class="cluster-group-list">
                     @foreach($strengthsClusters as $clusterName => $clusterData)
                         <li class="cluster-group-item">
@@ -545,7 +545,7 @@ body {
 
         @if(count($emergingClusters) > 0)
             <div class="test-report-section cluster-group-section" style="margin-top: 3px;">
-                <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Emerging Capabilities & Development Priorities:</div>
+                <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Emerging Capabilities & Development Priorities</div>
                 <ul class="cluster-group-list">
                     @foreach($emergingClusters as $clusterName => $clusterData)
                         <li class="cluster-group-item">
