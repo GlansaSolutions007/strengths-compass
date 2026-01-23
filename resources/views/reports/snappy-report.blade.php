@@ -671,21 +671,7 @@
         <div class="test-report-section">
             <div class="test-report-section-title">Report Summary</div>
             <div class="test-report-summary">
-                @php
-                    $candidateName = '';
-                    if(isset($user->name) && !empty($user->name)) {
-                        $candidateName = $user->name;
-                    } elseif(isset($user->first_name) || isset($user->last_name)) {
-                        $candidateName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
-                    } else {
-                        $candidateName = 'the candidate';
-                    }
-                    
-                    $defaultSummary = "This summary presents the cluster-level results from {$candidateName}'s Strengths Compass Assessment. The assessment measures 18 psychological constructs grouped into six clusters. Based on percentage scores, each cluster falls into one of three bands: HIGH - indicates a core strength to leverage, MEDIUM - indicates an emerging capability, and LOW - indicates a development priority. The clusters are presented below in two groups — Strengths and Developing Areas.";
-                    
-                    $summaryText = $defaultSummary;
-                @endphp
-                {{ $summaryText }}
+                {{ $reportSummary ?? '' }}
                 
                
             </div>

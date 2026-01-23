@@ -42,11 +42,16 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
-            // Create a new report record (content will be set later)
+            // Create a new report record with default summary
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
@@ -114,10 +119,15 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         /* -----------------------------------------
@@ -155,7 +165,7 @@ class ReportController extends Controller
             'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary ?? null,
+            'reportSummary'              => $report->report_summary,
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
@@ -230,10 +240,15 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         /* -----------------------------------------
@@ -272,7 +287,7 @@ class ReportController extends Controller
             'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary ?? null,
+            'reportSummary'              => $report->report_summary,
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterImage,
             'radarConstructChartBase64'  => $radarConstructImage,
@@ -388,10 +403,15 @@ or medical concerns, consult a qualified professional. For any queries regarding
         $report = $testResult->report;
         
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         /* -----------------------------------------
@@ -423,7 +443,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
             'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
-            'reportSummary'              => $report->report_summary ?? null,
+            'reportSummary'              => $report->report_summary,
             'logoBase64'                 => $logoBase64,
             'sdbPercentage'              => $sdbPercentage,
         ];
@@ -524,10 +544,15 @@ or medical concerns, consult a qualified professional. For any queries regarding
         $report = $testResult->report;
         
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
@@ -652,10 +677,15 @@ or medical concerns, consult a qualified professional. For any queries regarding
             $report = $testResult->report;
             
             if (!$report) {
+                $defaultSummary = $this->generateDefaultSummary($testResult->user);
                 $report = TestReport::create([
                     'test_result_id' => $testResult->id,
+                    'report_summary' => $defaultSummary,
                     'generated_at' => now(),
                 ]);
+            } else {
+                // Ensure report has a summary
+                $this->ensureReportSummary($report, $testResult->user);
             }
 
             // Delete old PDF if exists
@@ -806,9 +836,16 @@ or medical concerns, consult a qualified professional. For any queries regarding
         $report = $testResult->report;
 
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
             ]);
+        } else {
+            // Ensure report has a summary if not being updated
+            if (!$request->has('report_summary') && empty($report->report_summary)) {
+                $this->ensureReportSummary($report, $testResult->user);
+            }
         }
 
         $report->fill([
@@ -1220,10 +1257,15 @@ or medical concerns, consult a qualified professional. For any queries regarding
         // Get or create report
         $report = $testResult->report;
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         /* -----------------------------------------
@@ -1261,7 +1303,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
             'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary ?? null,
+            'reportSummary'              => $report->report_summary,
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
@@ -1971,10 +2013,15 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         // Get or create report
         $report = $testResult->report;
         if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
+        } else {
+            // Ensure report has a summary
+            $this->ensureReportSummary($report, $testResult->user);
         }
 
         /* -----------------------------------------
@@ -2012,7 +2059,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary ?? null,
+            'reportSummary'              => $report->report_summary,
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
@@ -2291,10 +2338,15 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             // Get or create report
             $report = $testResult->report;
             if (!$report) {
+                $defaultSummary = $this->generateDefaultSummary($testResult->user);
                 $report = TestReport::create([
                     'test_result_id' => $testResult->id,
+                    'report_summary' => $defaultSummary,
                     'generated_at' => now(),
                 ]);
+            } else {
+                // Ensure report has a summary
+                $this->ensureReportSummary($report, $testResult->user);
             }
 
             /* -----------------------------------------
@@ -2359,7 +2411,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
                     'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
                     'clusterScores'              => $clusterScores,
-                    'reportSummary'              => $report->report_summary ?? null,
+                    'reportSummary'              => $report->report_summary,
                     'logoBase64'                 => $logoBase64,
                     'sdbPercentage'              => $sdbPercentage,
                 ];
@@ -2407,7 +2459,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
                     'clusterScores'              => $clusterScores,
                     'constructScores'            => $constructScores,
-                    'reportSummary'              => $report->report_summary ?? null,
+                    'reportSummary'              => $report->report_summary,
                     'logoBase64'                 => $logoBase64,
                     'radarClusterChartBase64'    => $radarClusterImage,
                     'radarConstructChartBase64'  => $radarConstructImage,
@@ -2727,6 +2779,42 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     <p style="margin: 0;">This is an automated email. Please do not reply to this message.</p>
                 </div>
             </div>';
+    }
+
+    /**
+     * Generate default summary text dynamically based on user name
+     * 
+     * @param \App\Models\User|null $user
+     * @return string
+     */
+    private function generateDefaultSummary($user = null)
+    {
+        $candidateName = 'the candidate';
+        
+        if ($user) {
+            if (isset($user->name) && !empty($user->name)) {
+                $candidateName = $user->name;
+            } elseif (isset($user->first_name) || isset($user->last_name)) {
+                $candidateName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+            }
+        }
+        
+        return "This summary presents the cluster-level results from {$candidateName}'s Strengths Compass Assessment. The assessment measures 18 psychological constructs grouped into six clusters. Based on percentage scores, each cluster falls into one of three bands: HIGH - indicates a core strength to leverage, MEDIUM - indicates an emerging capability, and LOW - indicates a development priority. The clusters are presented below in two groups — Strengths and Developing Areas.";
+    }
+
+    /**
+     * Ensure report has a summary (set default if null)
+     * 
+     * @param \App\Models\TestReport $report
+     * @param \App\Models\User|null $user
+     * @return void
+     */
+    private function ensureReportSummary($report, $user = null)
+    {
+        if (empty($report->report_summary)) {
+            $report->report_summary = $this->generateDefaultSummary($user);
+            $report->save();
+        }
     }
 }
 
