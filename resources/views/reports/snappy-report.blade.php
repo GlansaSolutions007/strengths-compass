@@ -748,7 +748,10 @@
 
             @if(isset($sdbPercentage) && $sdbPercentage !== null && $sdbPercentage >= 90)
                     <div class="test-report-summary sdb-guidance">
-                        <p style="font-size: 11pt; color:rgb(243, 55, 55); font-weight: 600; margin-bottom: 8px;">Guidance:</p>
+                        <p style="font-size: 11pt; color:rgb(243, 55, 55); font-weight: 600; margin-bottom: 8px;">
+                            <img src="{{ asset('assets/—Pngtree—red flag sale_8699010.png') }}" alt="Flag" style="display: inline-block; width: 28px; height: 24px; vertical-align: middle; margin-right: 10px;" />
+                            <strong style="font-size: 12pt;">Guidance:</strong>
+                        </p>
                         <p style="font-size: 11pt; color: #4a5568; line-height: 1.6; font-style: italic; margin: 0; font-weight: 900;">
                         "This profile may benefit from further exploration to distinguish between current strengths and aspirational qualities. A follow-up conversation with a coach can help personalize these insights."
                         </p>

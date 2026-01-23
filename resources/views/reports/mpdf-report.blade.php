@@ -548,7 +548,20 @@ body {
     
     @if(isset($sdbPercentage) && $sdbPercentage !== null && $sdbPercentage >= 90)
         <div class="test-report-summary sdb-guidance">
-            <p style="font-size: 9pt; color:rgb(243, 55, 55); font-weight: bold; margin-bottom: 4px;">Guidance:</p>
+            <p style="font-size: 9pt; color:rgb(243, 55, 55); font-weight: bold; margin-bottom: 4px;">
+                @php
+                    $flagPath = public_path('assets/—Pngtree—red flag sale_8699010.png');
+                    $flagBase64 = null;
+                    if (file_exists($flagPath)) {
+                        $flagData = file_get_contents($flagPath);
+                        $flagBase64 = base64_encode($flagData);
+                    }
+                @endphp
+                @if($flagBase64)
+                    <img src="data:image/png;base64,{{ $flagBase64 }}" alt="Flag" style="display: inline-block; width: 24px; height: 20px; vertical-align: middle; margin-right: 2px;" />
+                @endif
+                <strong style="font-size: 10pt;">Guidance:</strong>
+            </p>
             <p style="font-size: 9pt; color: #4a5568; line-height: 1.5; font-style: italic; margin: 0; font-weight: bold;">
             "This profile may benefit from further exploration to distinguish between current strengths and aspirational qualities. A follow-up conversation with a coach can help personalize these insights."
             </p>
