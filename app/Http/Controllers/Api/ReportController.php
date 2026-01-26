@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
-use App\Mail\PdfReportMail;
 use Mpdf\Mpdf;
 use Mpdf\Config\ConfigVariables;
 use Mpdf\Config\FontVariables;
@@ -193,7 +192,7 @@ class ReportController extends Controller
 
         // Generate filename with user name
         $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-        $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
 
         // Get PDF output
         $pdfOutput = $pdf->output();
@@ -320,9 +319,9 @@ class ReportController extends Controller
             ]);
 
             // Set metadata
-            $mpdf->SetTitle('Strengths Compass Report');
+            $mpdf->SetTitle('Axis Strengths Compass Report');
             $mpdf->SetAuthor('Axis Strengths Compass');
-            $mpdf->SetCreator('Strengths Compass System');
+            $mpdf->SetCreator('Axis Strengths Compass System');
 
             // Set footer on every page
             $footerHtml = '
@@ -356,7 +355,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
 
         // Generate filename with user name
         $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-        $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
 
         // Get PDF output
         $pdfOutput = $mpdf->Output('', 'S');
@@ -474,9 +473,9 @@ or medical concerns, consult a qualified professional. For any queries regarding
             ]);
 
             // Set metadata
-            $mpdf->SetTitle('Strengths Compass Short Report');
+            $mpdf->SetTitle('Axis Strengths Compass Report');
             $mpdf->SetAuthor('Axis Strengths Compass');
-            $mpdf->SetCreator('Strengths Compass System');
+            $mpdf->SetCreator('Axis Strengths Compass System');
 
             // Set footer on every page
             $footerHtml = '
@@ -510,7 +509,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
 
         // Generate filename with user name
         $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-        $filename = 'strengths-compass-short-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
 
         // Get PDF output
         $pdfOutput = $mpdf->Output('', 'S');
@@ -1376,7 +1375,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                        trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                        'user';
             $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-            $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+            $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
             $output   = $pdf->output();
 
             Storage::disk('public')->put('reports/' . $filename, $output);
@@ -2128,7 +2127,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
 
             // Create filename with user name
             $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-            $filename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+            $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
             $output   = $pdf->output();
 
             // Save PDF to storage
@@ -2267,7 +2266,8 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 $emailResult = $this->sendPdfEmailForTestResult($testResult, $pdfType);
                 
                 if ($emailResult['success']) {
-                    // Reload the test result to get updated report relationship
+                    // Refresh report to get updated email_sent_at
+                   // Reload the test result to get updated report relationship
                     $testResult->load('report');
                     
                     // Get email_sent_at safely
@@ -2283,7 +2283,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                         'user_email' => $testResult->user->email ?? null,
                         'user_name' => $testResult->user->name ?? 
                                      trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')),
-                        'email_sent_at' => $emailSentAt,
+                        'email_sent_at' => $testResult->report->email_sent_at ? $testResult->report->email_sent_at->toISOString() : null,
                         'message' => $emailResult['message'],
                     ];
                     $results['success_count']++;
@@ -2439,27 +2439,17 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'tempDir' => storage_path('app/temp'),
                 ]);
 
-                $shortMpdf->SetTitle('Strengths Compass Report');
+                $shortMpdf->SetTitle('Axis Strengths Compass Report');
                 $shortMpdf->SetAuthor('Axis Strengths Compass');
-                $shortMpdf->SetCreator('Strengths Compass System');
+                $shortMpdf->SetCreator('Axis Strengths Compass System');
                 $shortMpdf->SetHTMLFooter($footerHtml);
                 $shortMpdf->WriteHTML($shortHtml);
 
-                $shortFilename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+                $shortFilename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
                 $shortOutput = $shortMpdf->Output('', 'S');
-                
-                // Save to temporary storage for queue processing
-                $tempDir = storage_path('app/temp');
-                if (!is_dir($tempDir)) {
-                    mkdir($tempDir, 0755, true);
-                }
-                $tempPath = $tempDir . '/email-' . uniqid() . '-' . $shortFilename;
-                file_put_contents($tempPath, $shortOutput);
-                
                 $pdfAttachments[] = [
-                    'path' => $tempPath,
+                    'data' => $shortOutput,
                     'filename' => $shortFilename,
-                    'temporary' => true, // Mark as temporary for cleanup
                 ];
             }
 
@@ -2499,35 +2489,25 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'tempDir' => storage_path('app/temp'),
                 ]);
 
-                $fullMpdf->SetTitle('Strengths Compass Report');
+                $fullMpdf->SetTitle('Axis Strengths Compass Report');
                 $fullMpdf->SetAuthor('Axis Strengths Compass');
-                $fullMpdf->SetCreator('Strengths Compass System');
+                $fullMpdf->SetCreator('Axis Strengths Compass System');
                 $fullMpdf->SetHTMLFooter($footerHtml);
                 $fullMpdf->WriteHTML($fullHtml);
 
-                $fullFilename = 'strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+                $fullFilename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
                 $fullOutput = $fullMpdf->Output('', 'S');
-                
+                $pdfAttachments[] = [
+                    'data' => $fullOutput,
+                    'filename' => $fullFilename,
+                ];
+
                 // Save full PDF to storage
                 Storage::disk('public')->put('reports/' . $fullFilename, $fullOutput);
                 $report->update([
                     'report_file' => 'reports/' . $fullFilename,
                     'generated_at' => now(),
                 ]);
-                
-                // Save to temporary storage for queue processing
-                $tempDir = storage_path('app/temp');
-                if (!is_dir($tempDir)) {
-                    mkdir($tempDir, 0755, true);
-                }
-                $tempPath = $tempDir . '/email-' . uniqid() . '-' . $fullFilename;
-                file_put_contents($tempPath, $fullOutput);
-                
-                $pdfAttachments[] = [
-                    'path' => $tempPath,
-                    'filename' => $fullFilename,
-                    'temporary' => true, // Mark as temporary for cleanup
-                ];
             }
 
             /* -----------------------------------------
@@ -2543,48 +2523,26 @@ or medical concerns, consult a qualified professional. For any queries regarding
 
             $userEmail = $testResult->user->email;
             $userDisplayName = $userName;
-            $testName = $testResult->test->title ?? 'Strengths Assessment';
+            $testName = $testResult->test->title ?? 'Axis Strengths Assessment';
 
-            // Build email content based on PDF type (already handles UTF-8 encoding)
+            // Build email content based on PDF type
             $emailContent = $this->buildEmailContent($userDisplayName, $testName, $pdfType);
 
-            // Ensure all string data is properly UTF-8 encoded for queue serialization
-            // Remove any invalid UTF-8 characters that might cause serialization issues
-            $userEmail = mb_convert_encoding(trim($userEmail), 'UTF-8', 'UTF-8');
-            $userDisplayName = $this->sanitizeForQueue(trim($userDisplayName));
-            $testName = $this->sanitizeForQueue(trim($testName));
-            
-            // Create Mailable instance
-            $mailable = new PdfReportMail(
-                $userEmail,
-                $userDisplayName,
-                $testName,
-                $emailContent,
-                $pdfAttachments
-            );
+            Mail::send([], [], function ($message) use ($userEmail, $userDisplayName, $pdfAttachments, $testName, $emailContent) {
+                $message->to($userEmail, $userDisplayName)
+                    ->subject('Your Strengths Compass Assessment Report - ' . $testName);
 
-            // Check if we should send synchronously (for testing) or queue
-            // You can set QUEUE_EMAILS=false in .env to send immediately
-            $shouldQueue = env('QUEUE_EMAILS', true);
-            
-            if ($shouldQueue) {
-                // Queue the email for asynchronous processing
-                Mail::to($userEmail, $userDisplayName)->queue($mailable);
-            } else {
-                // Send immediately (synchronously) - useful for testing
-                Mail::to($userEmail, $userDisplayName)->send($mailable);
-                
-                // Clean up temporary files immediately after sending
+                // Attach all PDFs
                 foreach ($pdfAttachments as $attachment) {
-                    if (isset($attachment['path']) && file_exists($attachment['path']) && isset($attachment['temporary']) && $attachment['temporary']) {
-                        @unlink($attachment['path']);
-                    }
+                    $message->attachData($attachment['data'], $attachment['filename'], [
+                        'mime' => 'application/pdf',
+                    ]);
                 }
-            }
 
-            // Note: email_sent_at will be updated when email is actually sent
-            // For immediate update, you can set it here, but it's better to use an event listener
-            // For now, we'll update it when queued (you can add a listener later for actual send confirmation)
+                $message->html($emailContent);
+            });
+
+            // Update email_sent_at status after successful email send
             $report->update([
                 'email_sent_at' => now(),
             ]);
@@ -2774,10 +2732,6 @@ or medical concerns, consult a qualified professional. For any queries regarding
      */
     private function buildEmailContent($userDisplayName, $testName, $pdfType)
     {
-        // Ensure all inputs are UTF-8 encoded
-        $userDisplayName = mb_convert_encoding($userDisplayName, 'UTF-8', 'UTF-8');
-        $testName = mb_convert_encoding($testName, 'UTF-8', 'UTF-8');
-        
         $reportDescription = '';
         $reportItems = '';
 
@@ -2804,8 +2758,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 <li><strong>Full Report:</strong> All of the above plus detailed cluster/construct analysis and radar charts</li>';
         }
 
-        // Build email content with proper UTF-8 encoding
-        $emailHtml = '
+        return '
             <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
                     <h1 style="margin: 0; font-size: 24px;">Axis Strengths Compass</h1>
@@ -2813,9 +2766,9 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 </div>
                 <div style="padding: 30px; background: #ffffff;">
                     <h2 style="color: #667eea; margin-top: 0;">Your Assessment Report is Ready</h2>
-                    <p>Dear ' . htmlspecialchars($userDisplayName, ENT_QUOTES, 'UTF-8', false) . ',</p>
+                    <p>Dear ' . htmlspecialchars($userDisplayName) . ',</p>
                     <p>Thank you for completing the Strengths Compass Assessment. Your personalized report' . ($pdfType === 'both' ? 's are' : ' is') . ' attached to this email.</p>
-                    <p>' . htmlspecialchars($reportDescription, ENT_QUOTES, 'UTF-8', false) . '</p>
+                    <p>' . $reportDescription . '</p>
                     <p><strong>Please review the attached PDF report' . ($pdfType === 'both' ? 's' : '') . ' for your complete assessment results.</strong></p>
                     <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
                         <p style="margin: 0; color: #555; font-size: 14px;">
@@ -2834,13 +2787,6 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     <p style="margin: 0;">This is an automated email. Please do not reply to this message.</p>
                 </div>
             </div>';
-        
-        // Ensure final output is valid UTF-8 and can be JSON encoded
-        $emailHtml = mb_convert_encoding($emailHtml, 'UTF-8', 'UTF-8');
-        // Remove any control characters that might cause issues
-        $emailHtml = preg_replace('/[\x00-\x1F\x7F]/u', '', $emailHtml);
-        
-        return $emailHtml;
     }
 
     /**
@@ -2877,25 +2823,6 @@ or medical concerns, consult a qualified professional. For any queries regarding
             $report->report_summary = $this->generateDefaultSummary($user);
             $report->save();
         }
-    }
-    
-    /**
-     * Sanitize string for queue serialization (remove invalid UTF-8 characters)
-     * 
-     * @param string $string
-     * @return string
-     */
-    private function sanitizeForQueue($string)
-    {
-        // Convert to UTF-8 and remove invalid characters
-        $string = mb_convert_encoding($string, 'UTF-8', 'UTF-8');
-        // Remove any characters that can't be JSON encoded
-        $string = preg_replace('/[\x00-\x1F\x7F]/u', '', $string);
-        // Ensure it's valid UTF-8
-        if (!mb_check_encoding($string, 'UTF-8')) {
-            $string = mb_convert_encoding($string, 'UTF-8', 'UTF-8');
-        }
-        return $string;
     }
 }
 
