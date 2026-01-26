@@ -228,7 +228,7 @@
             <div class="cover-info-value">{{ $user->email ?? 'N/A' }}</div>
 
             <div class="cover-info-label">Test</div>
-            <div class="cover-info-value">{{ $testName ?? 'Strengths Assessment' }}</div>
+            <div class="cover-info-value">{{ $testName ?? 'Axis Strengths Assessment' }}</div>
 
             <div class="cover-info-label">Date</div>
             <div class="cover-info-value">{{ $generatedAt ?? now()->format('F d, Y') }}</div>
