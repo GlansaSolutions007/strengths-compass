@@ -2563,8 +2563,24 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 $pdfAttachments
             );
 
-            // Queue the email for asynchronous processing
-            Mail::to($userEmail, $userDisplayName)->queue($mailable);
+            // Check if we should send synchronously (for testing) or queue
+            // You can set QUEUE_EMAILS=false in .env to send immediately
+            $shouldQueue = env('QUEUE_EMAILS', true);
+            
+            if ($shouldQueue) {
+                // Queue the email for asynchronous processing
+                Mail::to($userEmail, $userDisplayName)->queue($mailable);
+            } else {
+                // Send immediately (synchronously) - useful for testing
+                Mail::to($userEmail, $userDisplayName)->send($mailable);
+                
+                // Clean up temporary files immediately after sending
+                foreach ($pdfAttachments as $attachment) {
+                    if (isset($attachment['path']) && file_exists($attachment['path']) && isset($attachment['temporary']) && $attachment['temporary']) {
+                        @unlink($attachment['path']);
+                    }
+                }
+            }
 
             // Note: email_sent_at will be updated when email is actually sent
             // For immediate update, you can set it here, but it's better to use an event listener
