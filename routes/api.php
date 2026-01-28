@@ -86,6 +86,10 @@ Route::put('clusters/{id}', [ClusterController::class, 'update']);
 Route::delete('clusters/{id}', [ClusterController::class, 'destroy']);
 Route::patch('clusters/{id}/toggle-active', [ClusterController::class, 'toggleActive']);
 
+// Cluster and Construct Behavior Content Excel Export/Import
+Route::get('clusters/behavior-content/export', [ClusterController::class, 'downloadBehaviorContentExcel']);
+Route::post('clusters/behavior-content/import', [ClusterController::class, 'uploadBehaviorContentExcel']);
+
 // Construct CRUD (public for now)
 Route::get('constructs', [ConstructController::class, 'index']);
 Route::get('constructs/{id}', [ConstructController::class, 'show']);
