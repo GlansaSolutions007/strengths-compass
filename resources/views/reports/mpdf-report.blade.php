@@ -136,6 +136,7 @@ body {
     line-height: 1.5;
     margin-bottom: 4px;
     color: #2d3748;
+    page-break-inside: avoid;
 }
 
 .test-report-summary.sdb-guidance {
@@ -145,6 +146,7 @@ body {
     margin-top: 6px;
     margin-bottom: 0;
     padding: 10px 12px;
+    page-break-inside: avoid;
 }
 
 /* ---------------- CARDS ---------------- */
@@ -285,7 +287,6 @@ body {
 /* ---------------- CLUSTER GROUPS ---------------- */
 .cluster-group-section {
     margin-bottom: 4px;
-    page-break-inside: avoid;
 }
 
 .cluster-group-list {
@@ -304,6 +305,7 @@ body {
     font-size: 9pt;
     line-height: 1.4;
     color: #2d3748;
+    page-break-inside: avoid;
 }
 
 .cluster-group-item:last-child {
@@ -590,6 +592,12 @@ body {
             </p>
         </div>
     @endif
+
+    {{-- Disclaimer on summary page --}}
+    <div class="report-disclaimer" style="margin-top: 20px;">
+        <p><b>Disclaimer:</b></p>
+        <p>You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b></p>
+    </div>
 </div>
 
 <!-- ================= FULL REPORT STARTS HERE ================= -->

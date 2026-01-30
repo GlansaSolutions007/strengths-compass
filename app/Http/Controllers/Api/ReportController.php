@@ -505,6 +505,207 @@ or medical concerns, consult a qualified professional. For any queries regarding
     }
 
     /**
+     * Download multiple users' reports as a ZIP file.
+     * Accepts user_ids (comma-separated or array) and type (full|short).
+     * Optional: test_id to filter by specific test.
+     */
+    public function downloadBulkReportsAsZip(Request $request)
+    {
+        $userIdsInput = $request->input('user_ids');
+        if (is_string($userIdsInput)) {
+            $userIdsInput = array_filter(array_map('intval', explode(',', $userIdsInput)));
+        } elseif (is_array($userIdsInput)) {
+            $userIdsInput = array_filter(array_map('intval', $userIdsInput));
+        } else {
+            $userIdsInput = [];
+        }
+
+        $validator = Validator::make(array_merge($request->all(), ['user_ids' => $userIdsInput]), [
+            'user_ids' => 'required|array|min:1',
+            'user_ids.*' => 'integer|exists:users,id',
+            'type' => 'nullable|in:full,short',
+            'test_id' => 'nullable|exists:tests,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $type = $request->input('type', 'full');
+        $testId = $request->input('test_id');
+
+        $query = TestResult::with(['user', 'test', 'report'])
+            ->whereIn('user_id', $userIdsInput)
+            ->whereHas('user', function ($q) {
+                $q->whereRaw('LOWER(role) = ?', ['user']);
+            })
+            ->orderByDesc('created_at');
+
+        if ($testId) {
+            $query->where('test_id', $testId);
+        }
+
+        $testResults = $query->get();
+
+        if ($testResults->isEmpty()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'No test results found for the selected users',
+            ], 404);
+        }
+
+        $zip = new \ZipArchive();
+        $zipFileName = 'reports-bulk-' . now()->format('Y-m-d_His') . '.zip';
+        $zipPath = storage_path('app/temp/' . $zipFileName);
+
+        if (!is_dir(storage_path('app/temp'))) {
+            mkdir(storage_path('app/temp'), 0755, true);
+        }
+
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to create ZIP file',
+            ], 500);
+        }
+
+        $addedCount = 0;
+        foreach ($testResults as $testResult) {
+            $result = $this->buildMpdfReportForZip($testResult, $type);
+            if ($result) {
+                $zip->addFromString($result['filename'], $result['pdf']);
+                $addedCount++;
+            }
+        }
+
+        $zip->close();
+
+        if ($addedCount === 0) {
+            @unlink($zipPath);
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to generate any reports',
+            ], 500);
+        }
+
+        return response()->download($zipPath, $zipFileName, [
+            'Content-Type' => 'application/zip',
+        ])->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Build mPDF report content for a single test result (for ZIP export).
+     * Returns ['pdf' => string, 'filename' => string] or null on failure.
+     */
+    protected function buildMpdfReportForZip(TestResult $testResult, string $type): ?array
+    {
+        $testResult->load(['user', 'test', 'report']);
+
+        $report = $testResult->report;
+        if (!$report) {
+            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $report = TestReport::create([
+                'test_result_id' => $testResult->id,
+                'report_summary' => $defaultSummary,
+                'generated_at' => now(),
+            ]);
+        } else {
+            $this->ensureReportSummary($report, $testResult->user);
+        }
+
+        $clusterScores = $this->enrichClusterScores($testResult);
+        $clusterScores = $this->sortByPriority($clusterScores);
+        $logoBase64 = $this->getLogoBase64();
+        $userName = $testResult->user->name ?? trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 'user';
+        $sdbScores = $this->calculateSDBScores($testResult);
+        $sdbPercentage = $sdbScores['percentage'] ?? null;
+        $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
+
+        if ($type === 'full') {
+            $constructScores = $this->enrichConstructScores($testResult);
+            $constructScores = $this->sortByPriority($constructScores);
+            $radarClusterImage = $this->generateRadarmpdfChartSvg($clusterScores);
+            $radarConstructImage = $this->generateRadarmpdfChartSvg($constructScores);
+
+            $data = [
+                'user' => $testResult->user,
+                'testResult' => $testResult,
+                'test' => $testResult->test,
+                'report' => $report,
+                'testName' => $testResult->test->title ?? 'Strengths Assessment',
+                'generatedAt' => ($report->generated_at ?? now())->format('F d, Y'),
+                'clusterScores' => $clusterScores,
+                'constructScores' => $constructScores,
+                'reportSummary' => $report->report_summary,
+                'logoBase64' => $logoBase64,
+                'radarClusterChartBase64' => $radarClusterImage,
+                'radarConstructChartBase64' => $radarConstructImage,
+                'sdbPercentage' => $sdbPercentage,
+            ];
+            $html = view('reports.mpdf-report', $data)->render();
+        } else {
+            $data = [
+                'user' => $testResult->user,
+                'testResult' => $testResult,
+                'test' => $testResult->test,
+                'report' => $report,
+                'testName' => $testResult->test->title ?? 'Strengths Assessment',
+                'generatedAt' => ($report->generated_at ?? now())->format('F d, Y'),
+                'clusterScores' => $clusterScores,
+                'reportSummary' => $report->report_summary,
+                'logoBase64' => $logoBase64,
+                'sdbPercentage' => $sdbPercentage,
+            ];
+            $html = view('reports.mpdf-short-report', $data)->render();
+        }
+
+        try {
+            $mpdf = new Mpdf([
+                'mode' => 'utf-8',
+                'format' => 'A4',
+                'orientation' => 'P',
+                'margin_left' => 15,
+                'margin_right' => 15,
+                'margin_top' => $type === 'full' ? 12 : 15,
+                'margin_bottom' => $type === 'full' ? 18 : 30,
+                'margin_header' => $type === 'full' ? 8 : 10,
+                'margin_footer' => $type === 'full' ? 10 : 15,
+                'tempDir' => storage_path('app/temp'),
+            ]);
+
+            $mpdf->SetTitle('Axis Strengths Compass Report');
+            $mpdf->SetAuthor('Axis Strengths Compass');
+            $mpdf->SetCreator('Axis Strengths Compass System');
+
+            if ($type === 'short') {
+                $footerHtml = '
+                <div style="font-size: 7pt; color: #6c757d; text-align: center; line-height: 1.2; padding: 8px 10px; border-top: 1px solid #e9ecef;">
+                <p><b>Disclaimer:</b></p>
+                You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported
+                tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health
+                or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b>
+                </div>';
+                $mpdf->SetHTMLFooter($footerHtml);
+            }
+
+            $mpdf->WriteHTML($html);
+            $pdfOutput = $mpdf->Output('', 'S');
+        } catch (\Exception $e) {
+            \Log::error('Bulk report PDF generation failed', ['test_result_id' => $testResult->id, 'error' => $e->getMessage()]);
+            return null;
+        }
+
+        $suffix = $type === 'full' ? 'full' : 'short';
+        $filename = 'report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $suffix . '.pdf';
+
+        return ['pdf' => $pdfOutput, 'filename' => $filename];
+    }
+
+    /**
      * View PDF report in browser
      */
     public function viewPdf($testResultId)

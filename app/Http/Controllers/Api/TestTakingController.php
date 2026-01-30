@@ -837,15 +837,28 @@ private function calculateClusterScores($userAnswers, $test)
     /**
      * Download comprehensive test results as an Excel file with multiple sheets.
      * Filtered by selected age group from session.
+     * Optional: Pass user_ids (comma-separated or array) to export only selected users.
      */
     public function downloadTestResultsExcel(Request $request)
     {
         try {
-            $validator = Validator::make($request->all(), [
+            // Normalize user_ids: accept comma-separated string or array
+            $userIdsInput = $request->input('user_ids');
+            if (is_string($userIdsInput)) {
+                $userIdsInput = array_filter(array_map('intval', explode(',', $userIdsInput)));
+            } elseif (is_array($userIdsInput)) {
+                $userIdsInput = array_filter(array_map('intval', $userIdsInput));
+            } else {
+                $userIdsInput = [];
+            }
+
+            $validator = Validator::make(array_merge($request->all(), ['user_ids' => $userIdsInput]), [
                 'from_date' => 'nullable|date',
                 'to_date' => 'nullable|date',
                 'age_group_id' => 'required|exists:age_groups,id',
                 'test_id' => 'nullable|exists:tests,id',
+                'user_ids' => 'nullable|array',
+                'user_ids.*' => 'integer|exists:users,id',
             ]);
 
             if ($validator->fails()) {
@@ -867,6 +880,14 @@ private function calculateClusterScores($userAnswers, $test)
             $filteredResults = $formattedResults->filter(function ($result) {
                 return strtolower($result['user']['role'] ?? '') === 'user';
             })->values();
+
+            // Filter by selected user IDs when provided
+            if (!empty($userIdsInput)) {
+                $filteredResults = $filteredResults->filter(function ($result) use ($userIdsInput) {
+                    $userId = $result['user']['id'] ?? null;
+                    return $userId && in_array((int) $userId, $userIdsInput, true);
+                })->values();
+            }
 
             // Check if there's any data to export
             if ($filteredResults->isEmpty()) {

@@ -171,6 +171,7 @@ Route::get('test-results/{testResultId}/report/pdf/short', [ReportController::cl
 Route::get('test-results/{testResultId}/report/pdf/snappy', [ReportController::class, 'downloadSnappyPdf']); // Download PDF report using Snappy (wkhtmltopdf)
 Route::post('test-results/{testResultId}/report/pdf/email', [ReportController::class, 'sendPdfByEmail']); // Send PDF report via email to user
 Route::post('reports/pdf/bulk-email', [ReportController::class, 'sendBulkPdfByEmail']); // Send PDF reports via email to multiple users (bulk)
+Route::get('reports/pdf/bulk-download', [ReportController::class, 'downloadBulkReportsAsZip']); // Download multiple users' reports as ZIP
 Route::get('test-results/{testResultId}/report/view', [ReportController::class, 'viewPdf']); // View PDF report in browser
 Route::put('test-results/{testResultId}/report', [ReportController::class, 'updateReportContent']); // Update report summary/recommendations
 
