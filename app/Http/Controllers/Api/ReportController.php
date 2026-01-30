@@ -311,9 +311,9 @@ class ReportController extends Controller
                 'orientation' => 'P',
                 'margin_left' => 15,
                 'margin_right' => 15,
-                'margin_top' => 15,
-                'margin_bottom' => 15,
-                'margin_header' => 10,
+                'margin_top' => 12,
+                'margin_bottom' => 18,
+                'margin_header' => 8,
                 'margin_footer' => 10,
                 'tempDir' => storage_path('app/temp'),
             ]);
@@ -323,24 +323,7 @@ class ReportController extends Controller
             $mpdf->SetAuthor('Axis Strengths Compass');
             $mpdf->SetCreator('Axis Strengths Compass System');
 
-            // Set footer on every page
-            $footerHtml = '
-            <div style="
-                font-size: 7pt;
-                color: #6c757d;
-                text-align: center;
-                line-height: 1.2;
-                padding: 8px 10px;
-                border-top: 1px solid #e9ecef;
-            ">
-            <p><b>Disclaimer:</b></p>
-                You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported
-tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health
-or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b>
-            </div>';
-            
-            $mpdf->SetHTMLFooter($footerHtml);
-
+            // Full report: Disclaimer only on last page (embedded in HTML). No footer on content pages.
             // Write HTML content
             $mpdf->WriteHTML($html);
 
@@ -466,9 +449,9 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 'margin_left' => 15,
                 'margin_right' => 15,
                 'margin_top' => 15,
-                'margin_bottom' => 15,
+                'margin_bottom' => 30,
                 'margin_header' => 10,
-                'margin_footer' => 10,
+                'margin_footer' => 15,
                 'tempDir' => storage_path('app/temp'),
             ]);
 
@@ -477,7 +460,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
             $mpdf->SetAuthor('Axis Strengths Compass');
             $mpdf->SetCreator('Axis Strengths Compass System');
 
-            // Set footer on every page
+            // Short report: Disclaimer on all pages (summary report only)
             $footerHtml = '
             <div style="
                 font-size: 7pt;

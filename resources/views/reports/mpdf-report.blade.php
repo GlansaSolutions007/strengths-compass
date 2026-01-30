@@ -101,18 +101,18 @@ body {
 /* ---------------- SECTIONS ---------------- */
 .test-report-section {
     clear: both;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     width: 100%;
 }
 
 .test-report-section-title {
     font-size: 18pt;
-            font-weight: 700;
-            color: #667eea;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 3px solid #667eea;
-            position: relative;
+    font-weight: 700;
+    color: #667eea;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 3px solid #667eea;
+    position: relative;
 }
 
 .test-report-section-title::after {
@@ -151,11 +151,11 @@ body {
 .test-report-cluster-item,
 .test-report-construct-item {
     background: #ffffff;
-    padding: 18px 20px;
-    border-radius: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
     border: 1px solid #e2e8f0;
     border-left: 4px solid #667eea;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
     page-break-inside: avoid;
     width: 100%;
     float: left;
@@ -180,8 +180,8 @@ body {
 
 .test-report-item-header {
     border-bottom: 2px solid #f1f5f9;
-    margin-bottom: 10px;
-    padding-bottom: 8px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
     display: block;
     width: 100%;
 }
@@ -192,37 +192,40 @@ body {
     color: #1a202c;
     letter-spacing: -0.2px;
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
 }
 
+/* Colored band highlight bars - full-width colored strips */
 .test-report-band {
-   display: inline-block;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 9pt;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            white-space: nowrap;
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    margin-top: 6px;
+    margin-bottom: 0;
+    font-size: 9pt;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+    border-radius: 6px;
 }
 
 .band-low {
-    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    background-color: #fecaca;
     color: #991b1b;
-    border: 1px solid #fca5a5;
+    border-left: 4px solid #dc2626;
 }
 
 .band-medium {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    background-color: #fde68a;
     color: #92400e;
-    border: 1px solid #fcd34d;
+    border-left: 4px solid #d97706;
 }
 
 .band-high {
-    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+    background-color: #a7f3d0;
     color: #065f46;
-    border: 1px solid #6ee7b7;
+    border-left: 4px solid #059669;
 }
 
 .description-box {
@@ -237,7 +240,7 @@ body {
     font-size: 8.5pt;
     font-weight: 700;
     color: #667eea;
-    margin: 10px 0 6px;
+    margin: 8px 0 4px;
     text-transform: uppercase;
     letter-spacing: 0.8px;
 }
@@ -256,9 +259,9 @@ body {
     background: #eef2ff;
     background-image: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
     border-left: 4px solid #667eea;
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin-top: 10px;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 8px;
 }
 
 .tendency-label {
@@ -333,16 +336,15 @@ body {
 .radar-chart-page {
     page-break-before: always;
     text-align: center;
-    padding: 40px 20px;
-    /* min-height: 200mm; */
+    padding: 24px 16px;
     background: #f7fafc;
     background-image: linear-gradient(135deg, #f7fafc 0%, #ffffff 100%);
 }
 
 .radar-chart-title {
-    font-size: 22pt;
+    font-size: 20pt;
     font-weight: 800;
-    margin-bottom: 30px;
+    margin-bottom: 18px;
     color: #1a202c;
     letter-spacing: -0.5px;
     position: relative;
@@ -418,6 +420,27 @@ body {
     clear: both;
 }
 
+/* ---------------- DISCLAIMER (Last page of full report) ---------------- */
+.report-disclaimer {
+    margin-top: 15px;
+    page-break-inside: avoid;
+    padding: 12px 16px;
+    font-size: 7pt;
+    color: #6c757d;
+    text-align: center;
+    line-height: 1.4;
+    border-top: 2px solid #e2e8f0;
+    background: #f7fafc;
+}
+
+.report-disclaimer p {
+    margin-bottom: 6px;
+}
+
+.report-disclaimer p:last-child {
+    margin-bottom: 0;
+}
+
 /* ---------------- FOOTER ---------------- */
 .test-report-footer {
     page-break-before: always;
@@ -440,7 +463,7 @@ body {
 .test-report-construct-item {
     float: left;
     margin-right: 4%;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
     page-break-inside: avoid;
 }
 
@@ -584,6 +607,7 @@ body {
         foreach($clusterScores as $name => $data) {
             $clustersArray[] = ['name' => $name, 'data' => $data];
         }
+        $totalClusters = count($clustersArray);
     @endphp
 
     <div style="width: 100%; overflow: hidden; clear: both; margin: 0; padding: 0;">
@@ -592,7 +616,8 @@ body {
             $name = $item['name'];
             $data = $item['data'];
             $clusterIndex++;
-            $pageBreakStyle = ($clusterIndex > 2 && $clusterIndex % 2 == 1) ? 'page-break-before: always;' : '';
+            $isLastAndOdd = ($clusterIndex == $totalClusters && $totalClusters % 2 == 1);
+            $pageBreakStyle = ($clusterIndex > 2 && $clusterIndex % 2 == 1 && !$isLastAndOdd) ? 'page-break-before: always;' : '';
         @endphp
         
         <div class="test-report-cluster-item" style="{{ $pageBreakStyle }}">
@@ -700,8 +725,12 @@ body {
             ];
         }
 
-        // Split constructs into pages of 2
+        // Split constructs into pages of 2, but merge last single item with previous chunk to avoid orphan
         $constructChunks = array_chunk($constructsArray, 2);
+        if (count($constructChunks) > 1 && count(end($constructChunks)) == 1) {
+            $lastChunk = array_pop($constructChunks);
+            $constructChunks[count($constructChunks) - 1] = array_merge($constructChunks[count($constructChunks) - 1], $lastChunk);
+        }
     @endphp
 
     @foreach($constructChunks as $pageIndex => $chunk)
@@ -778,6 +807,11 @@ body {
 </div>
 @endif
 
+<!-- ================= DISCLAIMER (Last page of full report only) ================= -->
+<div class="report-disclaimer">
+    <p><b>Disclaimer:</b></p>
+    <p>You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b></p>
+</div>
 
 </body>
 </html>
