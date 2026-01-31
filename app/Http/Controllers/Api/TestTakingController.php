@@ -941,12 +941,114 @@ private function calculateClusterScores($userAnswers, $test)
     }
 
     /**
+     * Download test results as Excel (new format: user details, clusters, constructs, SDB - no questions).
+     * Same filters as downloadTestResultsExcel: from_date, to_date, age_group_id, test_id, user_ids.
+     * GET test-results-comprehensive/export-summary
+     */
+    public function downloadTestResultsSummaryExcel(Request $request)
+    {
+        try {
+            $userIdsInput = $request->input('user_ids');
+            if (is_string($userIdsInput)) {
+                $userIdsInput = array_filter(array_map('intval', explode(',', $userIdsInput)));
+            } elseif (is_array($userIdsInput)) {
+                $userIdsInput = array_filter(array_map('intval', $userIdsInput));
+            } else {
+                $userIdsInput = [];
+            }
+
+            $validator = Validator::make(array_merge($request->all(), ['user_ids' => $userIdsInput]), [
+                'from_date' => 'nullable|date',
+                'to_date' => 'nullable|date',
+                'age_group_id' => 'required|exists:age_groups,id',
+                'test_id' => 'nullable|exists:tests,id',
+                'user_ids' => 'nullable|array',
+                'user_ids.*' => 'integer|exists:users,id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $fromDate = $request->input('from_date');
+            $toDate = $request->input('to_date');
+            $ageGroupId = $request->input('age_group_id');
+            $testId = $request->input('test_id');
+
+            $testResults = $this->fetchTestResultsWithRelations($fromDate, $toDate, $ageGroupId, $testId);
+            $formattedResults = $this->transformTestResults($testResults);
+
+            $filteredResults = $formattedResults->filter(function ($result) {
+                return strtolower($result['user']['role'] ?? '') === 'user';
+            })->values();
+
+            if (!empty($userIdsInput)) {
+                $filteredResults = $filteredResults->filter(function ($result) use ($userIdsInput) {
+                    $userId = $result['user']['id'] ?? null;
+                    return $userId && in_array((int) $userId, $userIdsInput, true);
+                })->values();
+            }
+
+            if ($filteredResults->isEmpty()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No test results found to export',
+                ], 404);
+            }
+
+            $fileName = 'test-results-summary-' . now()->format('Y-m-d_His') . '.xlsx';
+
+            $groupedByTest = $filteredResults->groupBy(function ($result) {
+                return $result['test']['id'] ?? 'unknown';
+            });
+
+            $testDatasets = [];
+            foreach ($groupedByTest as $testIdVal => $testResultsGroup) {
+                $testTitle = $testResultsGroup->first()['test']['title'] ?? "Test {$testIdVal}";
+                $exportData = $this->buildSummaryExportDatasets($testResultsGroup);
+                $testDatasets[] = [
+                    'test_id' => $testIdVal,
+                    'test_title' => $testTitle,
+                    'raw_data' => $exportData['raw'] ?? [],
+                ];
+            }
+
+            if (empty($testDatasets) || empty(array_filter(array_column($testDatasets, 'raw_data')))) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'No data available to export',
+                ], 404);
+            }
+
+            return Excel::download(
+                new UserTestDataExport($testDatasets),
+                $fileName
+            );
+        } catch (\Exception $e) {
+            \Log::error('Test results summary Excel export failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to generate Excel file: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Fetch test results with required relationships and optional date filters.
      */
     protected function fetchTestResultsWithRelations(?string $fromDate, ?string $toDate, ?int $ageGroupId = null, ?int $testId = null): Collection
     {
         $query = TestResult::with([
-            'user',
+            'user.ageGroup',
+            'user.organization',
             'test',
             'answers.question.construct.cluster',
             'test.selectedQuestions',
@@ -1042,11 +1144,14 @@ private function calculateClusterScores($userAnswers, $test)
                     'whatsapp_number' => $testResult->user->whatsapp_number,
                     'gender' => $testResult->user->gender,
                     'age' => $testResult->user->age,
+                    'age_group' => $testResult->user->ageGroup?->name,
                     'city' => $testResult->user->city,
                     'state' => $testResult->user->state,
                     'country' => $testResult->user->country,
                     'profession' => $testResult->user->profession,
                     'educational_qualification' => $testResult->user->educational_qualification,
+                    'organization' => $testResult->user->organization?->name,
+                    'department' => null,
                 ],
                 'test' => [
                     'id' => $testResult->test->id,
@@ -1077,13 +1182,13 @@ private function calculateClusterScores($userAnswers, $test)
     }
 
     /**
-     * Build datasets for Excel export (raw data + summaries).
+     * Build datasets for Excel export (previous format: Cluster, Construct, Question Text + users as columns).
      */
     protected function buildExportDatasets(Collection $results): array
     {
-        $userHeaders    = $this->getUserHeaderLabels();
-        $questionCols   = $this->buildQuestionColumnsMeta($results);
-        $clusterNames   = $this->collectSummaryNames($results, 'clusters');
+        $userHeaders = $this->getUserHeaderLabels();
+        $questionCols = $this->buildQuestionColumnsMeta($results);
+        $clusterNames = $this->collectSummaryNames($results, 'clusters');
         $constructNames = $this->collectSummaryNames($results, 'constructs');
 
         $rawRows = $this->buildRawDataRows(
@@ -1097,6 +1202,107 @@ private function calculateClusterScores($userAnswers, $test)
         return [
             'raw' => $rawRows,
         ];
+    }
+
+    /**
+     * Build datasets for summary Excel export (new format: user details, clusters, constructs, SDB - no questions).
+     */
+    protected function buildSummaryExportDatasets(Collection $results): array
+    {
+        $clusterNames = $this->collectSummaryNames($results, 'clusters');
+        $constructNames = $this->collectSummaryNames($results, 'constructs');
+
+        $rawRows = $this->buildSummaryExportRows($results, $clusterNames, $constructNames);
+
+        return [
+            'raw' => $rawRows,
+        ];
+    }
+
+    /**
+     * Build summary export rows: Column A = labels, Columns B+ = one candidate per column.
+     * Content: User details, clusters, constructs, SDB. No questions.
+     *
+     * @param  array<int, string>  $clusterNames
+     * @param  array<int, string>  $constructNames
+     */
+    protected function buildSummaryExportRows(
+        Collection $results,
+        array $clusterNames,
+        array $constructNames
+    ): array {
+        $userDetailLabels = [
+            'Candidate Name',
+            'assessment_date',
+            'age',
+            'age_group',
+            'department',
+            'Organization',
+            'City',
+            'State',
+            'Country',
+        ];
+
+        $rows = [];
+
+        // 1. User details (row-wise: label in A, each user's value in B, C, D...)
+        foreach ($userDetailLabels as $label) {
+            $row = [$label];
+            foreach ($results as $result) {
+                $user = $result['user'] ?? [];
+                $submittedAt = $result['submitted_at'] ?? null;
+                $assessmentDate = $submittedAt ? (is_string($submittedAt) ? substr($submittedAt, 0, 10) : Carbon::parse($submittedAt)->format('Y-m-d')) : null;
+
+                $value = match ($label) {
+                    'Candidate Name' => $user['name'] ?? '',
+                    'assessment_date' => $assessmentDate ?? '',
+                    'age' => $user['age'] ?? '',
+                    'age_group' => $user['age_group'] ?? '',
+                    'department' => $user['department'] ?? '',
+                    'Organization' => $user['organization'] ?? '',
+                    'City' => $user['city'] ?? '',
+                    'State' => $user['state'] ?? '',
+                    'Country' => $user['country'] ?? '',
+                    default => '',
+                };
+                $row[] = $value;
+            }
+            $rows[] = $row;
+        }
+
+        // 2. Clusters (name in A, each user's score in B, C, D...)
+        foreach ($clusterNames as $clusterName) {
+            $row = [$clusterName];
+            foreach ($results as $result) {
+                $clusterItems = $result['clusters'] ?? [];
+                $entry = $clusterItems[$clusterName] ?? null;
+                $score = $entry ? $this->extractPercentageScore($entry) : null;
+                $row[] = $score;
+            }
+            $rows[] = $row;
+        }
+
+        // 3. Constructs (name in A, each user's score in B, C, D...)
+        foreach ($constructNames as $constructName) {
+            $row = [$constructName];
+            foreach ($results as $result) {
+                $constructItems = $result['constructs'] ?? [];
+                $entry = $constructItems[$constructName] ?? null;
+                $score = $entry ? $this->extractPercentageScore($entry) : null;
+                $row[] = $score;
+            }
+            $rows[] = $row;
+        }
+
+        // 4. SDB
+        $sdbRow = ['SDB'];
+        foreach ($results as $result) {
+            $sdb = $result['sdb'] ?? [];
+            $sdbRow[] = $sdb['percentage'] ?? null;
+        }
+        $rows[] = $sdbRow;
+
+        return $rows;
     }
 
     /**

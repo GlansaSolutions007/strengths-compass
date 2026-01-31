@@ -159,7 +159,8 @@ Route::get('test-results/{testResultId}/answers', [TestTakingController::class, 
 Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user (scores only)
 Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test (scores only)
 Route::get('test-results-comprehensive/all', [TestTakingController::class, 'getAllTestResultsComprehensive']); // Get all test results with comprehensive data for all users
-Route::get('test-results-comprehensive/export', [TestTakingController::class, 'downloadTestResultsExcel']); // Download multi-sheet Excel export
+Route::get('test-results-comprehensive/export', [TestTakingController::class, 'downloadTestResultsExcel']); // Download Excel (previous format: Cluster, Construct, Questions + users)
+Route::get('test-results-comprehensive/export-summary', [TestTakingController::class, 'downloadTestResultsSummaryExcel']); // Download Excel (new format: user details, clusters, constructs, SDB - no questions)
 
 // Report routes
 Route::get('test-results/{testResultId}/report', [ReportController::class, 'getReport']); // Get report data for a test result

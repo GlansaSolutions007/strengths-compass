@@ -39,8 +39,23 @@ class RawTestDataSheet implements FromArray, WithTitle, ShouldAutoSize, WithEven
                 $sheet = $event->sheet->getDelegate();
                 $this->styleHeaderRow($sheet);
                 $this->mergeClusterAndConstructCells($sheet);
+                $this->applyLeftAlignment($sheet);
             },
         ];
+    }
+
+    /**
+     * Left-align all values in the sheet.
+     */
+    private function applyLeftAlignment(Worksheet $sheet): void
+    {
+        $highestRow = $sheet->getHighestRow();
+        $highestColumn = $sheet->getHighestColumn();
+        if ($highestRow >= 1) {
+            $sheet->getStyle("A1:{$highestColumn}{$highestRow}")
+                ->getAlignment()
+                ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
+        }
     }
 
     /**
@@ -151,10 +166,10 @@ class RawTestDataSheet implements FromArray, WithTitle, ShouldAutoSize, WithEven
         $sheet->mergeCells($range);
         $sheet->getCell(explode(':', $range)[0])->setValue($value);
         
-        // Center align vertically and horizontally for merged cells
+        // Left align vertically centered for merged cells
         $sheet->getStyle($range)->getAlignment()
             ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
-            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
     }
 }
 
