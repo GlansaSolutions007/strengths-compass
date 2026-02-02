@@ -366,7 +366,7 @@ class TestTakingController extends Controller
     }
 
     /**
-     * Categorize based on percentage: 0-59 = low, 60-79 = medium, 80-100 = high
+     * Categorize based on percentage: 0-59 = low, 60-75 = medium, 76-100 = high
      */
     private function categorizeScore($score)
     {
@@ -375,7 +375,7 @@ class TestTakingController extends Controller
         
         if ($percentage < 60) {
             return 'low';
-        } elseif ($percentage < 80) {
+        } elseif ($percentage < 76) {
             return 'medium';
         } else {
             return 'high';
@@ -697,6 +697,7 @@ private function calculateClusterScores($userAnswers, $test)
             'status' => true,
             'data' => [
                 'test_result_id' => $testResult->id,
+                'exam_taken_at' => $testResult->created_at,
                 'test' => [
                     'id' => $testResult->test->id,
                     'title' => $testResult->test->title,
@@ -1798,13 +1799,13 @@ private function calculateClusterScores($userAnswers, $test)
     }
 
     /**
-     * Categorize score by percentage: 0-59 = Low, 60-79 = Medium, 80-100 = High
+     * Categorize score by percentage: 0-59 = Low, 60-75 = Medium, 76-100 = High
      */
     private function categorizeByPercentage($percentage)
     {
         if ($percentage < 60) {
             return 'Low';
-        } elseif ($percentage < 80) {
+        } elseif ($percentage < 76) {
             return 'Medium';
         } else {
             return 'High';

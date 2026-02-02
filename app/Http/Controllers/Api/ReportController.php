@@ -162,7 +162,7 @@ class ReportController extends Controller
             'test'                        => $testResult->test,
             'report'                      => $report,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
             'reportSummary'              => $report->report_summary,
@@ -278,16 +278,19 @@ class ReportController extends Controller
         $radarClusterImage = $this->generateRadarmpdfChartSvg($clusterScores);
         $radarConstructImage = $this->generateRadarmpdfChartSvg($constructScores);
 
+        // Strip embedded disclaimer from report summary (shown in page footer instead)
+        $reportSummary = $this->stripDisclaimerFromSummary($report->report_summary ?? '');
+
         $data = [
             'user'                       => $testResult->user,
             'testResult'                 => $testResult,
             'test'                        => $testResult->test,
             'report'                      => $report,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary,
+            'reportSummary'              => $reportSummary,
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterImage,
             'radarConstructChartBase64'  => $radarConstructImage,
@@ -314,7 +317,7 @@ class ReportController extends Controller
                 'margin_top' => 12,
                 'margin_bottom' => 18,
                 'margin_header' => 8,
-                'margin_footer' => 10,
+                'margin_footer' => 15,
                 'tempDir' => storage_path('app/temp'),
             ]);
 
@@ -323,7 +326,7 @@ class ReportController extends Controller
             $mpdf->SetAuthor('Axis Strengths Compass');
             $mpdf->SetCreator('Axis Strengths Compass System');
 
-            // Full report: Disclaimer only on last page (embedded in HTML). No footer on content pages.
+            // Full report: Disclaimer in page footer (Report Summary pages only - controlled via htmlpagefooter in blade)
             // Write HTML content
             $mpdf->WriteHTML($html);
 
@@ -418,15 +421,18 @@ class ReportController extends Controller
         $sdbScores = $this->calculateSDBScores($testResult);
         $sdbPercentage = $sdbScores['percentage'] ?? null;
 
+        // Strip embedded disclaimer from report summary (shown in page footer instead)
+        $reportSummary = $this->stripDisclaimerFromSummary($report->report_summary ?? '');
+
         $data = [
             'user'                       => $testResult->user,
             'testResult'                 => $testResult,
             'test'                        => $testResult->test,
             'report'                      => $report,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
-            'reportSummary'              => $report->report_summary,
+            'reportSummary'              => $reportSummary,
             'logoBase64'                 => $logoBase64,
             'sdbPercentage'              => $sdbPercentage,
         ];
@@ -460,24 +466,7 @@ class ReportController extends Controller
             $mpdf->SetAuthor('Axis Strengths Compass');
             $mpdf->SetCreator('Axis Strengths Compass System');
 
-            // Short report: Disclaimer on all pages (summary report only)
-            $footerHtml = '
-            <div style="
-                font-size: 7pt;
-                color: #6c757d;
-                text-align: center;
-                line-height: 1.2;
-                padding: 8px 10px;
-                border-top: 1px solid #e9ecef;
-            ">
-            <p><b>Disclaimer:</b></p>
-                You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported
-tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health
-or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b>
-            </div>';
-            
-            $mpdf->SetHTMLFooter($footerHtml);
-
+            // Short report: Disclaimer in page footer (Report Summary pages only - controlled via htmlpagefooter in blade)
             // Write HTML content
             $mpdf->WriteHTML($html);
 
@@ -637,7 +626,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 'test' => $testResult->test,
                 'report' => $report,
                 'testName' => $testResult->test->title ?? 'Strengths Assessment',
-                'generatedAt' => ($report->generated_at ?? now())->format('F d, Y'),
+                'generatedAt' => ($testResult->created_at ?? now())->format('F d, Y'),
                 'clusterScores' => $clusterScores,
                 'constructScores' => $constructScores,
                 'reportSummary' => $report->report_summary,
@@ -654,7 +643,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 'test' => $testResult->test,
                 'report' => $report,
                 'testName' => $testResult->test->title ?? 'Strengths Assessment',
-                'generatedAt' => ($report->generated_at ?? now())->format('F d, Y'),
+                'generatedAt' => ($testResult->created_at ?? now())->format('F d, Y'),
                 'clusterScores' => $clusterScores,
                 'reportSummary' => $report->report_summary,
                 'logoBase64' => $logoBase64,
@@ -1109,11 +1098,11 @@ or medical concerns, consult a qualified professional. For any queries regarding
     }
 
     /**
-     * Determine strength category by percentage
+     * Determine strength category by percentage: 0-59 = Low, 60-75 = Medium, 76-100 = High
      */
     private function getStrengthCategory(int $percentage): string
     {
-        if ($percentage >= 80) {
+        if ($percentage >= 76) {
             return 'High';
         }
 
@@ -1484,7 +1473,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
             'test'                        => $testResult->test,
             'report'                      => $report,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
             'reportSummary'              => $report->report_summary,
@@ -2240,7 +2229,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             'test'                        => $testResult->test,
             'report'                      => $report,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-            'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+            'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
             'reportSummary'              => $report->report_summary,
@@ -2601,7 +2590,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'test'                        => $testResult->test,
                     'report'                      => $report,
                     'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-                    'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+                    'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
                     'clusterScores'              => $clusterScores,
                     'reportSummary'              => $report->report_summary,
                     'logoBase64'                 => $logoBase64,
@@ -2648,7 +2637,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'test'                        => $testResult->test,
                     'report'                      => $report,
                     'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
-                    'generatedAt'                => ($report->generated_at ?? now())->format('F d, Y'),
+                    'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
                     'clusterScores'              => $clusterScores,
                     'constructScores'            => $constructScores,
                     'reportSummary'              => $report->report_summary,
@@ -3007,6 +2996,34 @@ or medical concerns, consult a qualified professional. For any queries regarding
             $report->report_summary = $this->generateDefaultSummary($user);
             $report->save();
         }
+    }
+
+    /**
+     * Strip embedded disclaimer from report summary (used for PDF - disclaimer shown in footer).
+     *
+     * @param string $content
+     * @return string
+     */
+    private function stripDisclaimerFromSummary(string $content): string
+    {
+        if (empty(trim($content))) {
+            return $content;
+        }
+
+        $patterns = [
+            '/<div[^>]*class="[^"]*disclaimer[^"]*"[^>]*>.*?<\/div>/is',
+            '/<p[^>]*>\s*<b>Disclaimer:?<\/b>\s*<\/p>\s*<p[^>]*>.*?personal development purposes only.*?<\/p>/is',
+            '/<p[^>]*>\s*<strong>Disclaimer:?<\/strong>\s*<\/p>\s*<p[^>]*>.*?personal development purposes only.*?<\/p>/is',
+            '/<div[^>]*>\s*<p[^>]*>\s*<b>Disclaimer:?<\/b>\s*<\/p>.*?personal development purposes only.*?<\/div>/is',
+            '/\s*<strong>Disclaimer:?<\/strong>.*?@[a-zA-Z0-9.]+\.(in|ai|com)\s*/is',
+            '/\s*<b>Disclaimer:?<\/b>.*?@[a-zA-Z0-9.]+\.(in|ai|com)\s*/is',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $content = preg_replace($pattern, '', $content);
+        }
+
+        return trim($content);
     }
 }
 

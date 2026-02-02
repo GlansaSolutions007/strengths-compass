@@ -118,9 +118,10 @@
             border-radius: 12px;
             padding: 10px 12px;
             font-size: 9.5pt;
-            line-height: 1.5;
+            line-height: 1.6;
             margin-bottom: 4px;
             color: #2d3748;
+            /* Allow content to flow across pages */
         }
 
         .test-report-summary.sdb-guidance {
@@ -134,8 +135,8 @@
 
         /* ---------------- CLUSTER GROUPS ---------------- */
         .cluster-group-section {
-            margin-bottom: 4px;
-            page-break-inside: avoid;
+            margin-bottom: 8px;
+            /* No page-break-inside - allow content to flow naturally */
         }
 
         .cluster-group-list {
@@ -235,11 +236,22 @@
         </div>
     </div>
 
+    <!-- Define named footer for Report Summary (disclaimer at bottom of each summary page) -->
+    <htmlpagefooter name="disclaimer">
+    <div style="font-size: 7pt; color: #6c757d; text-align: center; line-height: 1.2; padding: 8px 10px; border-top: 1px solid #e9ecef;">
+    <p><b>Disclaimer:</b></p>
+    <p>You have consented and taken this assessment for personal development purposes only. You understand results are not diagnostic, medical, or clinical, and represent self reported tendencies. These results may be influenced by context, mood, and self perception. Use them as a starting point for reflection and coaching, not as a definitive judgment. For mental health or medical concerns, consult a qualified professional. For any queries regarding the report, please send an email to: <b>guide@axiscompass.in</b></p>
+    </div>
+    </htmlpagefooter>
+
+    <!-- Turn on disclaimer footer for Report Summary section (all summary pages) -->
+    <sethtmlpagefooter name="disclaimer" page="ALL" value="1" />
+
     <!-- ================= SUMMARY ================= -->
     <div class="test-report-section summary-page">
         <div class="test-report-section-title"><b>Report Summary</b></div>
         <div class="test-report-summary">
-            {{ $reportSummary ?? '' }}
+            {!! $reportSummary ?? '' !!}
         </div>
 
         <!-- ================= CLUSTER GROUPS (Between Summary and Guidance) ================= -->

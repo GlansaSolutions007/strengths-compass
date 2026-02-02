@@ -193,11 +193,11 @@ class TestCompletionMail extends Mailable
     }
 
     /**
-     * Determine strength category by percentage
+     * Determine strength category by percentage: 0-59 = Low, 60-75 = Medium, 76-100 = High
      */
     private function getStrengthCategory(int $percentage): string
     {
-        if ($percentage >= 80) {
+        if ($percentage >= 76) {
             return 'High';
         }
 
