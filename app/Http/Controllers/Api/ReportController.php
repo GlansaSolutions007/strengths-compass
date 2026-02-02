@@ -1282,7 +1282,10 @@ class ReportController extends Controller
             $clusterInfo = $clusterDetailsMap[$clusterName] ?? null;
 
             if (is_array($scoreData)) {
-                $category = strtolower($scoreData['category'] ?? '');
+                // Recalculate category from average (always use current thresholds: 60, 76)
+                $average = $scoreData['average'] ?? 0;
+                $percentage = $this->convertScoreToPercentage($average);
+                $category = strtolower($this->getStrengthCategory($percentage));
                 $behaviour = null;
 
                 // Get the appropriate behaviour based on category
@@ -1300,11 +1303,8 @@ class ReportController extends Controller
                     }
                 }
 
-                // Calculate percentage from average score
-                $average = $scoreData['average'] ?? 0;
-                $percentage = $this->convertScoreToPercentage($average);
-
                 $enriched[$clusterName] = array_merge($scoreData, [
+                    'category' => $category,
                     'description' => $clusterInfo['description'] ?? null,
                     'area' => $clusterInfo['area'] ?? ($scoreData['area'] ?? null),
                     'behaviour' => $behaviour,
@@ -1363,7 +1363,10 @@ class ReportController extends Controller
             $constructInfo = $constructDetailsMap[$constructName] ?? null;
 
             if (is_array($scoreData)) {
-                $category = strtolower($scoreData['category'] ?? '');
+                // Recalculate category from average (always use current thresholds: 60, 76)
+                $average = $scoreData['average'] ?? 0;
+                $percentage = $this->convertScoreToPercentage($average);
+                $category = strtolower($this->getStrengthCategory($percentage));
                 $behaviour = null;
 
                 // Get the appropriate behaviour based on category
@@ -1381,11 +1384,8 @@ class ReportController extends Controller
                     }
                 }
 
-                // Calculate percentage from average score
-                $average = $scoreData['average'] ?? 0;
-                $percentage = $this->convertScoreToPercentage($average);
-
                 $enriched[$constructName] = array_merge($scoreData, [
+                    'category' => $category,
                     'description' => $constructInfo['description'] ?? null,
                     'behaviour' => $behaviour,
                     'cluster_name' => $constructInfo['cluster_name'] ?? null,
