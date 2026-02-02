@@ -1328,7 +1328,7 @@ private function calculateClusterScores($userAnswers, $test)
                     'average' => $meanScore,
                     'percentage' => $percentage,
                     'count' => $data['count'] ?? null,
-                    'category' => $data['category'] ?? $this->categorizeByPercentage($percentage),
+                    'category' => $this->categorizeByPercentage($percentage),
                     'area' => $data['area'] ?? null,
                 ];
             } else {
