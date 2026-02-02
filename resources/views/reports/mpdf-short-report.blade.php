@@ -265,42 +265,66 @@
                 $emergingClusters = array_filter($clusterScores, function ($clusterData) {
                     return isset($clusterData['category']) && in_array(strtolower($clusterData['category']), ['medium', 'low']);
                 });
+
+                // Build flat list with group labels (Strengths first, then Emerging)
+                $allClustersWithGroup = [];
+                foreach ($strengthsClusters as $clusterName => $clusterData) {
+                    $allClustersWithGroup[] = ['name' => $clusterName, 'data' => $clusterData, 'group' => 'Strengths to Leverage'];
+                }
+                foreach ($emergingClusters as $clusterName => $clusterData) {
+                    $allClustersWithGroup[] = ['name' => $clusterName, 'data' => $clusterData, 'group' => 'Emerging Capabilities & Development Priorities'];
+                }
+
+                // Paginate: first 4 on page 1, remaining on page 2
+                $firstPageClusters = array_slice($allClustersWithGroup, 0, 4);
+                $remainingClusters = array_slice($allClustersWithGroup, 4);
+
+                // Group each page's clusters by their group label
+                $firstPageByGroup = [];
+                foreach ($firstPageClusters as $item) {
+                    $firstPageByGroup[$item['group']][] = $item;
+                }
+                $remainingByGroup = [];
+                foreach ($remainingClusters as $item) {
+                    $remainingByGroup[$item['group']][] = $item;
+                }
             @endphp
 
-            @if(count($strengthsClusters) > 0)
+            {{-- First page: up to 4 cluster tendencies --}}
+            @foreach($firstPageByGroup as $groupName => $items)
                 <div class="test-report-section cluster-group-section" style="margin-top: 4px;">
-                    <div class="test-report-item-label"
-                        style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Strengths to Leverage
-                    </div>
+                    <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">{{ $groupName }}</div>
                     <ul class="cluster-group-list">
-                        @foreach($strengthsClusters as $clusterName => $clusterData)
+                        @foreach($items as $item)
                             <li class="cluster-group-item">
-                                <span class="cluster-name-in-list">{{ $clusterName }}</span>
-                                @if(isset($clusterData['behaviour']) && !empty($clusterData['behaviour']))
-                                    <div class="cluster-tendency-in-list">{{ $clusterData['behaviour'] }}</div>
+                                <span class="cluster-name-in-list">{{ $item['name'] }}</span>
+                                @if(isset($item['data']['behaviour']) && !empty($item['data']['behaviour']))
+                                    <div class="cluster-tendency-in-list">{{ $item['data']['behaviour'] }}</div>
                                 @endif
                             </li>
                         @endforeach
                     </ul>
                 </div>
-            @endif
+            @endforeach
 
-            @if(count($emergingClusters) > 0)
-                <div class="test-report-section cluster-group-section" style="margin-top: 3px;">
-                    <div class="test-report-item-label"
-                        style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">Emerging Capabilities &
-                        Development Priorities</div>
-                    <ul class="cluster-group-list">
-                        @foreach($emergingClusters as $clusterName => $clusterData)
-                            <li class="cluster-group-item">
-                                <span class="cluster-name-in-list">{{ $clusterName }}</span>
-                                @if(isset($clusterData['behaviour']) && !empty($clusterData['behaviour']))
-                                    <div class="cluster-tendency-in-list">{{ $clusterData['behaviour'] }}</div>
-                                @endif
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
+            {{-- Next page: remaining clusters (5th, 6th, etc.) --}}
+            @if(count($remainingClusters) > 0)
+                <div class="page-break" style="page-break-before: always;"></div>
+                @foreach($remainingByGroup as $groupName => $items)
+                    <div class="test-report-section cluster-group-section" style="margin-top: 4px;">
+                        <div class="test-report-item-label" style="font-size: 11pt; margin-bottom: 3px; color: #1E37B3; font-weight: 800;">{{ $groupName }}</div>
+                        <ul class="cluster-group-list">
+                            @foreach($items as $item)
+                                <li class="cluster-group-item">
+                                    <span class="cluster-name-in-list">{{ $item['name'] }}</span>
+                                    @if(isset($item['data']['behaviour']) && !empty($item['data']['behaviour']))
+                                        <div class="cluster-tendency-in-list">{{ $item['data']['behaviour'] }}</div>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endforeach
             @endif
         @endif
 
