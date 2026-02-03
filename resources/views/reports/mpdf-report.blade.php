@@ -543,10 +543,12 @@ body {
             $strengthsClusters = array_filter($clusterScores, function($clusterData) {
                 return isset($clusterData['category']) && strtolower($clusterData['category']) === 'high';
             });
+            ksort($strengthsClusters, SORT_NATURAL | SORT_FLAG_CASE);
 
             $emergingClusters = array_filter($clusterScores, function($clusterData) {
                 return isset($clusterData['category']) && in_array(strtolower($clusterData['category']), ['medium', 'low']);
             });
+            ksort($emergingClusters, SORT_NATURAL | SORT_FLAG_CASE);
 
             // Build flat list with group labels (Strengths first, then Emerging)
             $allClustersWithGroup = [];
@@ -652,6 +654,7 @@ body {
         foreach($clusterScores as $name => $data) {
             $clustersArray[] = ['name' => $name, 'data' => $data];
         }
+        usort($clustersArray, function($a, $b) { return strcasecmp($a['name'], $b['name']); });
         $totalClusters = count($clustersArray);
     @endphp
 
@@ -769,6 +772,7 @@ body {
                 'data' => $data
             ];
         }
+        usort($constructsArray, function($a, $b) { return strcasecmp($a['name'], $b['name']); });
 
         // Split constructs into pages of 2, but merge last single item with previous chunk to avoid orphan
         $constructChunks = array_chunk($constructsArray, 2);
