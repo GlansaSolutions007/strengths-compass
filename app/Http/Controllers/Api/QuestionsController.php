@@ -143,7 +143,7 @@ class QuestionsController extends Controller
             'question_text' => 'required|string',
             'age_group_id' => 'nullable|exists:age_groups,id',
             'category' => 'required|in:P,R,SDB',
-            'order_no' => 'required|integer',
+            'order_no' => 'nullable|integer',
             'is_active' => 'sometimes|boolean',
         ]);
 
@@ -154,10 +154,10 @@ class QuestionsController extends Controller
             ], 422);
         }
 
-        // Prepare data for creation - age_group_id will be included if provided
-        $question = Question::create($request->only([
-            'construct_id', 'question_text', 'age_group_id', 'category', 'order_no', 'is_active'
-        ]));
+        // Prepare data for creation - age_group_id will be included if provided; order_no defaults to 0 if omitted
+        $data = $request->only(['construct_id', 'question_text', 'age_group_id', 'category', 'is_active']);
+        $data['order_no'] = $request->input('order_no', 0);
+        $question = Question::create($data);
 
         $question->load('construct');
 
@@ -248,7 +248,7 @@ class QuestionsController extends Controller
             'question_text' => 'sometimes|required|string',
             'age_group_id' => 'nullable|exists:age_groups,id',
             'category' => 'sometimes|required|in:P,R,SDB',
-            'order_no' => 'sometimes|required|integer',
+            'order_no' => 'sometimes|nullable|integer',
             'is_active' => 'sometimes|boolean',
         ]);
 
@@ -259,10 +259,12 @@ class QuestionsController extends Controller
             ], 422);
         }
 
-        // Update with all provided fields including age_group_id
-        $question->update($request->only([
-            'construct_id', 'question_text', 'age_group_id', 'category', 'order_no', 'is_active'
-        ]));
+        // Update with all provided fields including age_group_id; omit order_no if null (column is not nullable)
+        $updateData = $request->only(['construct_id', 'question_text', 'age_group_id', 'category', 'order_no', 'is_active']);
+        if (array_key_exists('order_no', $updateData) && $updateData['order_no'] === null) {
+            unset($updateData['order_no']);
+        }
+        $question->update($updateData);
 
         $question->load('construct');
 
