@@ -9,6 +9,9 @@ use App\Models\Cluster;
 use App\Models\QuestionsModel as Question;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\TestQuestionsTemplateExport;
+use App\Imports\TestQuestionsImport;
 
 class TestController extends Controller
 {
@@ -149,6 +152,7 @@ class TestController extends Controller
             'clusters.*.p_count' => 'nullable|integer|min:0',
             'clusters.*.r_count' => 'nullable|integer|min:0',
             'clusters.*.sdb_count' => 'nullable|integer|min:0',
+            'questions_file' => 'sometimes|mimes:xlsx,xls,csv|max:10240', // Excel file for questions
         ]);
 
         if ($validator->fails()) {
@@ -186,8 +190,121 @@ class TestController extends Controller
 
             $test->load('clusters');
 
+            // Store import stats for response
+            $importStats = null;
+            $importErrors = null;
+
+            // Handle Excel file upload for questions (priority)
+            if ($request->hasFile('questions_file')) {
+                try {
+                    $file = $request->file('questions_file');
+                    $ageGroupId = $test->age_group_id;
+
+                    \Log::info('Starting Excel import for test', [
+                        'test_id' => $test->id,
+                        'age_group_id' => $ageGroupId,
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_size' => $file->getSize(),
+                        'mime_type' => $file->getMimeType(),
+                    ]);
+
+                    // Create import instance
+                    $import = new TestQuestionsImport($test->id, $ageGroupId);
+
+                    // Import the file
+                    Excel::import($import, $file);
+
+                    // Get import statistics
+                    $stats = $import->getStats();
+                    $createdQuestions = $stats['created_questions'] ?? [];
+                    $errors = $stats['errors'] ?? [];
+                    
+                    \Log::info('Excel import completed', [
+                        'test_id' => $test->id,
+                        'success_count' => $stats['success'] ?? 0,
+                        'failure_count' => $stats['failures'] ?? 0,
+                        'questions_created' => count($createdQuestions),
+                        'errors_count' => count($errors),
+                    ]);
+                    
+                    // Store for response
+                    $importStats = $stats;
+                    $importErrors = $errors;
+
+                    // Collect unique cluster IDs from imported questions
+                    $clusterIds = [];
+                    foreach ($createdQuestions as $item) {
+                        $clusterId = $item['cluster_id'];
+                        if ($clusterId && !in_array($clusterId, $clusterIds)) {
+                            $clusterIds[] = $clusterId;
+                        }
+                    }
+
+                    // Attach clusters to the test if not already attached
+                    if (!empty($clusterIds)) {
+                        foreach ($clusterIds as $clusterId) {
+                            if (!$test->clusters()->where('clusters.id', $clusterId)->exists()) {
+                                $test->clusters()->attach($clusterId, [
+                                    'p_count' => null,
+                                    'r_count' => null,
+                                    'sdb_count' => null,
+                                ]);
+                            }
+                        }
+                    }
+
+                    // Attach created questions to the test
+                    if (!empty($createdQuestions)) {
+                        $testQuestions = [];
+                        $orderNo = 1;
+
+                        foreach ($createdQuestions as $item) {
+                            $questionId = $item['question_id'];
+                            $clusterId = $item['cluster_id'];
+
+                            // Check if question already exists in test
+                            $exists = DB::table('test_question')
+                                ->where('test_id', $test->id)
+                                ->where('question_id', $questionId)
+                                ->exists();
+
+                            if (!$exists) {
+                                $testQuestions[] = [
+                                    'test_id' => $test->id,
+                                    'question_id' => $questionId,
+                                    'cluster_id' => $clusterId,
+                                    'order_no' => $orderNo++,
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ];
+                            }
+                        }
+
+                        if (!empty($testQuestions)) {
+                            DB::table('test_question')->insert($testQuestions);
+                        }
+                    }
+
+                    // Log import results
+                    \Log::info('Test questions import completed', [
+                        'test_id' => $test->id,
+                        'success_count' => $stats['success'] ?? 0,
+                        'failure_count' => $stats['failures'] ?? 0,
+                        'questions_attached' => count($createdQuestions),
+                        'clusters_attached' => count($clusterIds),
+                        'errors' => $errors,
+                    ]);
+                } catch (\Exception $e) {
+                    \Log::error('Test questions import failed during test creation', [
+                        'test_id' => $test->id,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ]);
+                    // Continue with test creation even if import fails
+                }
+            }
             // Handle question_ids if provided (manual selection from frontend)
-            if ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
+            elseif ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
                 $this->attachSelectedQuestions($test, $request->question_ids);
             } else {
                 // Auto-generate questions if clusters are attached and no question_ids provided
@@ -196,15 +313,33 @@ class TestController extends Controller
                 }
             }
 
-            // Reload test with questions to include in response
-            $test->load('selectedQuestions');
+            // Reload test with questions and clusters to include in response
+            $test->load(['selectedQuestions', 'clusters']);
 
-            return response()->json([
+            $response = [
                 'status' => true,
                 'message' => 'Test created successfully',
                 'data' => $test,
                 'selected_questions_count' => $test->selectedQuestions->count()
-            ], 201);
+            ];
+
+            // If Excel file was uploaded, include import statistics
+            if ($importStats !== null) {
+                $response['import_stats'] = [
+                    'success_count' => $importStats['success'] ?? 0,
+                    'failure_count' => $importStats['failures'] ?? 0,
+                    'questions_created' => count($importStats['created_questions'] ?? []),
+                ];
+                
+                if (!empty($importErrors)) {
+                    $response['import_errors'] = $importErrors;
+                    $response['message'] = 'Test created with some import errors. Check import_errors for details.';
+                } elseif (($importStats['success'] ?? 0) > 0) {
+                    $response['message'] = 'Test created successfully with ' . ($importStats['success'] ?? 0) . ' questions imported.';
+                }
+            }
+
+            return response()->json($response, 201);
         } catch (\Exception $e) {
             \Log::error('Test Creation Error', [
                 'error' => $e->getMessage(),
@@ -272,6 +407,7 @@ class TestController extends Controller
             'clusters.*.p_count' => 'nullable|integer|min:0',
             'clusters.*.r_count' => 'nullable|integer|min:0',
             'clusters.*.sdb_count' => 'nullable|integer|min:0',
+            'questions_file' => 'sometimes|mimes:xlsx,xls,csv|max:10240', // Excel file for questions
         ]);
 
         if ($validator->fails()) {
@@ -284,8 +420,9 @@ class TestController extends Controller
 
         $test->update($request->only(['title', 'description', 'age_group_id', 'is_active']));
 
-        // Sync clusters with category counts if provided
-        if ($request->has('clusters')) {
+        // Sync clusters with category counts if provided AND not empty
+        // Only sync if clusters array is present, not empty, and is actually an array
+        if ($request->has('clusters') && is_array($request->clusters) && !empty($request->clusters)) {
             $syncData = [];
             foreach ($request->clusters as $clusterData) {
                 $syncData[$clusterData['cluster_id']] = [
@@ -299,8 +436,59 @@ class TestController extends Controller
 
         $test->load('clusters');
 
+        // Handle Excel file upload for questions (priority)
+        if ($request->hasFile('questions_file')) {
+            try {
+                $file = $request->file('questions_file');
+                $ageGroupId = $test->age_group_id;
+
+                // Create import instance
+                $import = new TestQuestionsImport($test->id, $ageGroupId);
+
+                // Import the file
+                Excel::import($import, $file);
+
+                // Get import statistics
+                $stats = $import->getStats();
+                $createdQuestions = $stats['created_questions'] ?? [];
+
+                // Clear existing questions and attach new ones
+                DB::table('test_question')->where('test_id', $test->id)->delete();
+
+                    // Attach created questions to the test
+                    if (!empty($createdQuestions)) {
+                        $testQuestions = [];
+                        $orderNo = 1;
+
+                        foreach ($createdQuestions as $item) {
+                            $questionId = $item['question_id'];
+                            $clusterId = $item['cluster_id'];
+
+                            $testQuestions[] = [
+                                'test_id' => $test->id,
+                                'question_id' => $questionId,
+                                'cluster_id' => $clusterId,
+                                'order_no' => $orderNo++,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ];
+                        }
+
+                        if (!empty($testQuestions)) {
+                            DB::table('test_question')->insert($testQuestions);
+                        }
+                    }
+            } catch (\Exception $e) {
+                \Log::error('Test questions import failed during test update', [
+                    'test_id' => $test->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                // Continue with test update even if import fails
+            }
+        }
         // Handle question_ids if provided (manual selection from frontend)
-        if ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
+        elseif ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
             $this->attachSelectedQuestions($test, $request->question_ids);
         }
 
@@ -770,6 +958,167 @@ class TestController extends Controller
         // Insert in batches for better performance
         if (!empty($testQuestions)) {
             DB::table('test_question')->insert($testQuestions);
+        }
+    }
+
+    /**
+     * Download Excel template for test questions
+     * Template includes prefilled cluster and construct names based on age_group_id
+     */
+    public function downloadQuestionsTemplate(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'age_group_id' => 'nullable|exists:age_groups,id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $ageGroupId = $request->input('age_group_id');
+            
+            $fileName = 'test-questions-template-';
+            if ($ageGroupId) {
+                $fileName .= 'age-group-' . $ageGroupId . '-';
+            }
+            $fileName .= now()->format('Y-m-d_His') . '.xlsx';
+
+            return Excel::download(
+                new TestQuestionsTemplateExport($ageGroupId),
+                $fileName
+            );
+        } catch (\Exception $e) {
+            \Log::error('Test questions template export failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to generate template: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Import questions from Excel file for a test
+     * Creates questions and attaches them to the test
+     */
+    public function importQuestions(Request $request, string $id)
+    {
+        $test = Test::find($id);
+
+        if (!$test) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Test not found'
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|mimes:xlsx,xls,csv|max:10240', // 10MB max
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed',
+            ], 422);
+        }
+
+        try {
+            $file = $request->file('file');
+            $ageGroupId = $test->age_group_id;
+
+            // Create import instance
+            $import = new TestQuestionsImport($test->id, $ageGroupId);
+
+            // Import the file
+            Excel::import($import, $file);
+
+            // Get import statistics
+            $stats = $import->getStats();
+            $createdQuestions = $stats['created_questions'] ?? [];
+
+            // Attach created questions to the test
+            if (!empty($createdQuestions)) {
+                $testQuestions = [];
+                $orderNo = 1;
+
+                // Get existing max order_no to continue from there
+                $maxOrderNo = DB::table('test_question')
+                    ->where('test_id', $test->id)
+                    ->max('order_no') ?? 0;
+                $orderNo = $maxOrderNo + 1;
+
+                foreach ($createdQuestions as $item) {
+                    $question = $item['question'];
+                    $clusterId = $item['cluster_id'];
+
+                    // Check if question already exists in test
+                    $exists = DB::table('test_question')
+                        ->where('test_id', $test->id)
+                        ->where('question_id', $question->id)
+                        ->exists();
+
+                    if (!$exists) {
+                        $testQuestions[] = [
+                            'test_id' => $test->id,
+                            'question_id' => $question->id,
+                            'cluster_id' => $clusterId,
+                            'order_no' => $orderNo++,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ];
+                    }
+                }
+
+                if (!empty($testQuestions)) {
+                    DB::table('test_question')->insert($testQuestions);
+                }
+            }
+
+            // Reload test with questions
+            $test->load('selectedQuestions');
+
+            // Prepare response
+            $response = [
+                'status' => true,
+                'message' => 'Questions imported successfully',
+                'data' => [
+                    'test_id' => $test->id,
+                    'success_count' => $stats['success'],
+                    'failure_count' => $stats['failures'],
+                    'total_processed' => $stats['success'] + $stats['failures'],
+                    'questions_attached' => count($createdQuestions),
+                    'selected_questions_count' => $test->selectedQuestions->count(),
+                ],
+            ];
+
+            // Add failure details if any
+            if ($stats['failures'] > 0) {
+                $response['errors'] = $stats['errors'];
+                $response['message'] = 'Import completed with some errors';
+            }
+
+            return response()->json($response, 200);
+        } catch (\Exception $e) {
+            \Log::error('Test questions import failed', [
+                'test_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to import questions: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }

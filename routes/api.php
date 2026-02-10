@@ -151,6 +151,10 @@ Route::put('tests/{testId}/clusters/{clusterId}/category-counts', [TestControlle
 Route::post('tests/{id}/generate-questions', [TestController::class, 'generateQuestionSelection']);
 Route::post('tests/{id}/regenerate-questions', [TestController::class, 'regenerateQuestionSelection']);
 
+// Test Questions Excel Import/Export
+Route::get('tests/questions/template', [TestController::class, 'downloadQuestionsTemplate']); // Download Excel template
+Route::post('tests/{id}/questions/import', [TestController::class, 'importQuestions']); // Import questions from Excel
+
 // Test Taking (User-facing endpoints)
 Route::get('tests/{testId}/take', [TestTakingController::class, 'getTestForUser']); // Get test with questions for user
 Route::post('tests/{testId}/submit', [TestTakingController::class, 'submitAnswers']); // Submit test answers
