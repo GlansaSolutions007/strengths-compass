@@ -9,7 +9,7 @@ class Test extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['title', 'description', 'age_group_id', 'is_active'];
+    protected $fillable = ['title', 'description', 'age_group_id', 'is_active', 'source', 'sc_pro_test_id'];
 
     /**
      * Get clusters associated with this test
@@ -74,6 +74,22 @@ class Test extends Model
     public function ageGroup()
     {
         return $this->belongsTo(AgeGroup::class);
+    }
+
+    /**
+     * Get the SC Pro test this CERC test is linked to (for CERC tests only)
+     */
+    public function scProTest()
+    {
+        return $this->belongsTo(Test::class, 'sc_pro_test_id');
+    }
+
+    /**
+     * Get all CERC tests linked to this SC Pro test
+     */
+    public function cercTests()
+    {
+        return $this->hasMany(Test::class, 'sc_pro_test_id');
     }
 }
 

@@ -32,6 +32,11 @@ class TestController extends Controller
             $query->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
         }
 
+        // Filter by source if provided
+        if ($request->has('source')) {
+            $query->where('source', $request->source);
+        }
+
         $tests = $query->get();
 
         return response()->json([
@@ -143,6 +148,24 @@ class TestController extends Controller
             'description' => 'nullable|string',
             'age_group_id' => 'nullable|exists:age_groups,id',
             'is_active' => 'sometimes|boolean',
+            'source' => 'sometimes|in:SC Pro,CERC',
+            'sc_pro_test_id' => [
+                'nullable',
+                'exists:tests,id',
+                function ($attribute, $value, $fail) use ($request) {
+                    // If source is CERC, sc_pro_test_id should be provided
+                    if ($request->input('source') === 'CERC' && !$value) {
+                        $fail('sc_pro_test_id is required for CERC tests to map to the corresponding SC Pro test.');
+                    }
+                    // If sc_pro_test_id is provided, verify it's an SC Pro test
+                    if ($value) {
+                        $scProTest = Test::find($value);
+                        if (!$scProTest || ($scProTest->source ?? 'SC Pro') !== 'SC Pro') {
+                            $fail('sc_pro_test_id must reference an SC Pro test.');
+                        }
+                    }
+                },
+            ],
             'cluster_ids' => 'sometimes|array',
             'cluster_ids.*' => 'exists:clusters,id',
             'question_ids' => 'sometimes|array',
@@ -164,7 +187,7 @@ class TestController extends Controller
         }
 
         try {
-            $test = Test::create($request->only(['title', 'description', 'age_group_id', 'is_active']));
+            $test = Test::create($request->only(['title', 'description', 'age_group_id', 'is_active', 'source', 'sc_pro_test_id']));
 
             // Handle cluster_ids (simple array format - backward compatibility)
             if ($request->has('cluster_ids') && is_array($request->cluster_ids)) {
@@ -208,8 +231,8 @@ class TestController extends Controller
                         'mime_type' => $file->getMimeType(),
                     ]);
 
-                    // Create import instance
-                    $import = new TestQuestionsImport($test->id, $ageGroupId);
+                    // Create import instance with test source
+                    $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro');
 
                     // Import the file
                     Excel::import($import, $file);
@@ -400,6 +423,28 @@ class TestController extends Controller
             'description' => 'nullable|string',
             'age_group_id' => 'nullable|exists:age_groups,id',
             'is_active' => 'sometimes|boolean',
+            'source' => 'sometimes|in:SC Pro,CERC',
+            'sc_pro_test_id' => [
+                'nullable',
+                'exists:tests,id',
+                function ($attribute, $value, $fail) use ($request, $id) {
+                    // If source is CERC, sc_pro_test_id should be provided
+                    if ($request->input('source') === 'CERC' && !$value) {
+                        $fail('sc_pro_test_id is required for CERC tests to map to the corresponding SC Pro test.');
+                    }
+                    // If sc_pro_test_id is provided, verify it's an SC Pro test
+                    if ($value) {
+                        $scProTest = Test::find($value);
+                        if (!$scProTest || ($scProTest->source ?? 'SC Pro') !== 'SC Pro') {
+                            $fail('sc_pro_test_id must reference an SC Pro test.');
+                        }
+                        // Prevent circular reference
+                        if ($value == $id) {
+                            $fail('A test cannot reference itself as sc_pro_test_id.');
+                        }
+                    }
+                },
+            ],
             'question_ids' => 'sometimes|array',
             'question_ids.*' => 'exists:questions,id',
             'clusters' => 'sometimes|array',
@@ -418,7 +463,7 @@ class TestController extends Controller
             ], 422);
         }
 
-        $test->update($request->only(['title', 'description', 'age_group_id', 'is_active']));
+        $test->update($request->only(['title', 'description', 'age_group_id', 'is_active', 'source', 'sc_pro_test_id']));
 
         // Sync clusters with category counts if provided AND not empty
         // Only sync if clusters array is present, not empty, and is actually an array
@@ -442,8 +487,8 @@ class TestController extends Controller
                 $file = $request->file('questions_file');
                 $ageGroupId = $test->age_group_id;
 
-                // Create import instance
-                $import = new TestQuestionsImport($test->id, $ageGroupId);
+                // Create import instance with test source
+                $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro');
 
                 // Import the file
                 Excel::import($import, $file);
@@ -617,6 +662,57 @@ class TestController extends Controller
     }
 
     /**
+     * Get CERC tests linked to an SC Pro test
+     */
+    public function getCercTestsForScPro(string $id)
+    {
+        $scProTest = Test::find($id);
+
+        if (!$scProTest) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Test not found'
+            ], 404);
+        }
+
+        if (($scProTest->source ?? 'SC Pro') !== 'SC Pro') {
+            return response()->json([
+                'status' => false,
+                'message' => 'This endpoint is only for SC Pro tests'
+            ], 422);
+        }
+
+        // Get all CERC tests linked to this SC Pro test
+        $cercTests = Test::where('sc_pro_test_id', $scProTest->id)
+            ->where('source', 'CERC')
+            ->where('is_active', true)
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'sc_pro_test' => [
+                    'id' => $scProTest->id,
+                    'title' => $scProTest->title,
+                    'source' => $scProTest->source ?? 'SC Pro',
+                ],
+                'cerc_tests' => $cercTests->map(function ($test) {
+                    return [
+                        'id' => $test->id,
+                        'title' => $test->title,
+                        'description' => $test->description,
+                        'source' => $test->source,
+                        'age_group_id' => $test->age_group_id,
+                        'is_active' => $test->is_active,
+                    ];
+                })
+            ],
+            'message' => 'CERC tests fetched successfully',
+            'count' => $cercTests->count()
+        ], 200);
+    }
+
+    /**
      * Get selected questions for a test
      */
     public function getQuestions(string $id)
@@ -734,9 +830,22 @@ class TestController extends Controller
             $sdbCount = $pivot->sdb_count ?? null;
 
             // Get all active questions from this cluster
+            // For CERC tests, include questions from both SC Pro and CERC sources
+            // For SC Pro tests, only include SC Pro questions
             $availableQuestions = Question::whereHas('construct', function ($query) use ($cluster) {
                 $query->where('cluster_id', $cluster->id);
-            })->where('is_active', true)->get();
+            })->where('is_active', true);
+            
+            // If test source is CERC, include questions from both sources
+            // If test source is SC Pro, only include SC Pro questions
+            if ($test->source === 'CERC') {
+                $availableQuestions = $availableQuestions->whereIn('source', ['SC Pro', 'CERC']);
+            } else {
+                // Default to SC Pro if source is not set or is SC Pro
+                $availableQuestions = $availableQuestions->where('source', 'SC Pro');
+            }
+            
+            $availableQuestions = $availableQuestions->get();
 
             // If no category counts are set, include ALL questions (backward compatibility)
             if ($pCount === null && $rCount === null && $sdbCount === null) {
@@ -1037,7 +1146,7 @@ class TestController extends Controller
             $ageGroupId = $test->age_group_id;
 
             // Create import instance
-            $import = new TestQuestionsImport($test->id, $ageGroupId);
+            $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro');
 
             // Import the file
             Excel::import($import, $file);

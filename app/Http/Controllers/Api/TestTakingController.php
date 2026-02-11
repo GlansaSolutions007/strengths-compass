@@ -44,6 +44,77 @@ class TestTakingController extends Controller
             ], 404);
         }
 
+        // For CERC tests, validate that user has completed SC Pro test first and filter questions
+        $selectedQuestions = $test->selectedQuestions;
+        $scProTest = null;
+        $scProTestResult = null;
+        
+        if ($test->source === 'CERC') {
+            $userId = $request->input('user_id');
+            
+            if (!$userId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'user_id is required for CERC tests. Please provide user_id to check eligibility.',
+                    'requires_sc_pro_completion' => true
+                ], 422);
+            }
+            
+            // Find SC Pro test - use explicit mapping if available, otherwise fallback to age group
+            if ($test->sc_pro_test_id) {
+                // Use explicit mapping
+                $scProTest = Test::where('id', $test->sc_pro_test_id)
+                    ->where('source', 'SC Pro')
+                    ->where('is_active', true)
+                    ->first();
+            } else {
+                // Fallback: Find SC Pro test for same age group (backward compatibility)
+                $scProTest = Test::where('source', 'SC Pro')
+                    ->where('is_active', true)
+                    ->where('age_group_id', $test->age_group_id)
+                    ->first();
+            }
+            
+            if (!$scProTest) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'SC Pro test not found or not mapped. CERC test requires SC Pro completion first.',
+                    'requires_sc_pro_completion' => true
+                ], 422);
+            }
+            
+            // Check if user has completed SC Pro test
+            $scProTestResult = TestResult::where('user_id', $userId)
+                ->where('test_id', $scProTest->id)
+                ->where('status', 'completed')
+                ->latest()
+                ->first();
+            
+            if (!$scProTestResult) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You must complete the SC Pro test before taking the CERC test.',
+                    'requires_sc_pro_completion' => true,
+                    'sc_pro_test_id' => $scProTest->id,
+                    'sc_pro_test_title' => $scProTest->title
+                ], 403);
+            }
+            
+            // Filter out questions already answered in SC Pro test
+            $answeredQuestionIds = UserAnswer::whereHas('testResult', function ($query) use ($userId, $scProTest) {
+                $query->where('user_id', $userId)
+                      ->where('test_id', $scProTest->id)
+                      ->where('status', 'completed');
+            })->pluck('question_id')->toArray();
+            
+            // Filter out already answered questions from CERC test
+            if (!empty($answeredQuestionIds)) {
+                $selectedQuestions = $selectedQuestions->reject(function ($question) use ($answeredQuestionIds) {
+                    return in_array($question->id, $answeredQuestionIds);
+                });
+            }
+        }
+
         // Get all options (same for every question)
         $options = OptionsModel::orderBy('value')->get();
 
@@ -68,7 +139,7 @@ class TestTakingController extends Controller
         // If language is specified and found, load translations
         $translations = [];
         if ($languageId) {
-            $questionIds = $test->selectedQuestions->pluck('id')->toArray();
+            $questionIds = $selectedQuestions->pluck('id')->toArray();
             $translations = QuestionTranslation::whereIn('question_id', $questionIds)
                 ->where('language_id', $languageId)
                 ->where('is_active', true)
@@ -84,7 +155,7 @@ class TestTakingController extends Controller
         }
 
         // Format questions with their order
-        $questions = $test->selectedQuestions->map(function ($question) use ($translations) {
+        $questions = $selectedQuestions->map(function ($question) use ($translations) {
             $questionData = [
                 'id' => $question->id,
                 'question_text' => $question->question_text, // Default to English
@@ -111,18 +182,46 @@ class TestTakingController extends Controller
             return $questionData;
         })->sortBy('order_no')->values();
 
+        // For SC Pro tests, include linked CERC test info
+        $cercTestInfo = null;
+        if ($test->source === 'SC Pro') {
+            $cercTests = Test::where('sc_pro_test_id', $test->id)
+                ->where('source', 'CERC')
+                ->where('is_active', true)
+                ->get();
+            
+            if ($cercTests->count() > 0) {
+                $cercTestInfo = $cercTests->map(function ($cercTest) {
+                    return [
+                        'id' => $cercTest->id,
+                        'title' => $cercTest->title,
+                        'description' => $cercTest->description,
+                        'source' => $cercTest->source,
+                    ];
+                })->values();
+            }
+        }
+
+        $responseData = [
+            'test' => [
+                'id' => $test->id,
+                'title' => $test->title,
+                'description' => $test->description,
+                'source' => $test->source ?? 'SC Pro',
+            ],
+            'questions' => $questions,
+            'options' => $options,
+            'total_questions' => $questions->count()
+        ];
+
+        // Add CERC test info if available
+        if ($cercTestInfo !== null) {
+            $responseData['available_cerc_tests'] = $cercTestInfo;
+        }
+
         return response()->json([
             'status' => true,
-            'data' => [
-                'test' => [
-                    'id' => $test->id,
-                    'title' => $test->title,
-                    'description' => $test->description,
-                ],
-                'questions' => $questions,
-                'options' => $options,
-                'total_questions' => $questions->count()
-            ],
+            'data' => $responseData,
             'message' => 'Test fetched successfully',
             'language' => $lang,
         ], 200);
@@ -182,8 +281,69 @@ class TestTakingController extends Controller
         $answers = $request->input('answers');
         $isConsent = $request->boolean('is_consent', false);
 
+        // For CERC tests, we need to combine answers from SC Pro test (for overlapping questions)
+        // and current CERC test (for new questions)
+        $combinedAnswers = $answers;
+        $scProQuestionIds = [];
+        
+        if ($test->source === 'CERC') {
+            // Find the user's completed SC Pro test
+            $scProTest = Test::where('source', 'SC Pro')
+                ->where('is_active', true)
+                ->where('age_group_id', $test->age_group_id) // Same age group
+                ->first();
+            
+            if ($scProTest) {
+                // Get SC Pro test result
+                $scProTestResult = TestResult::where('user_id', $userId)
+                    ->where('test_id', $scProTest->id)
+                    ->where('status', 'completed')
+                    ->latest()
+                    ->first();
+                
+                if ($scProTestResult) {
+                    // Get all questions in CERC test (both SC Pro and CERC sources)
+                    $cercTestQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
+                    
+                    // Get SC Pro answers for questions that are also in CERC test
+                    $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)
+                        ->whereIn('question_id', $cercTestQuestionIds)
+                        ->with('question')
+                        ->get();
+                    
+                    // Get question IDs from SC Pro answers
+                    $scProQuestionIds = $scProAnswers->pluck('question_id')->toArray();
+                    
+                    // Convert SC Pro answers to the same format as current answers
+                    $scProAnswersFormatted = $scProAnswers->map(function ($userAnswer) {
+                        return [
+                            'question_id' => $userAnswer->question_id,
+                            'answer_value' => $userAnswer->answer_value,
+                            'final_score' => $userAnswer->final_score, // Use already calculated final_score
+                            'from_sc_pro' => true // Flag to indicate this came from SC Pro
+                        ];
+                    })->toArray();
+                    
+                    // Merge: Use SC Pro answers for overlapping questions, CERC answers for new questions
+                    // Create a map of current answers by question_id
+                    $currentAnswersMap = collect($answers)->keyBy('question_id');
+                    
+                    // Start with SC Pro answers
+                    $combinedAnswers = $scProAnswersFormatted;
+                    
+                    // Add/override with CERC answers for questions not in SC Pro
+                    foreach ($answers as $cercAnswer) {
+                        if (!in_array($cercAnswer['question_id'], $scProQuestionIds)) {
+                            $cercAnswer['from_sc_pro'] = false;
+                            $combinedAnswers[] = $cercAnswer;
+                        }
+                    }
+                }
+            }
+        }
+
         // 3️⃣ Preload ALL questions & scoring rules (NO N+1)
-        $questionIds = collect($answers)->pluck('question_id')->unique();
+        $questionIds = collect($combinedAnswers)->pluck('question_id')->unique();
 
         $questions = QuestionsModel::with('construct.cluster')
             ->whereIn('id', $questionIds)
@@ -205,13 +365,19 @@ class TestTakingController extends Controller
             ]);
 
             // 5️⃣ Prepare Batch Insert
+            // For CERC tests, only insert answers that are NOT from SC Pro (new questions)
+            // For SC Pro tests, insert all answers
             $answerRows = [];
             $userAnswersForCalc = [];
 
             $totalScore = 0;
             $questionCount = 0;
 
-            foreach ($answers as $answer) {
+            foreach ($combinedAnswers as $answer) {
+                // For CERC tests, only store new answers (not from SC Pro) in user_answers table
+                // SC Pro answers are already stored, we just use them for calculation
+                $isFromScPro = isset($answer['from_sc_pro']) && $answer['from_sc_pro'] === true;
+                
                 $question = $questions[$answer['question_id']] ?? null;
                 if (!$question) continue;
 
@@ -228,25 +394,36 @@ class TestTakingController extends Controller
                     $includeInConstruct = $rule->include_in_construct ?? true;
                 }
 
-                $finalScore = round(
-                    $this->calculateScore(
-                        $answer['answer_value'],
-                        $category,
-                        $reverse,
-                        $weight
-                    ),
-                    2
-                );
+                // For SC Pro answers, use the already calculated final_score
+                // For new CERC answers, calculate the final_score
+                if ($isFromScPro && isset($answer['final_score'])) {
+                    $finalScore = $answer['final_score'];
+                } else {
+                    $finalScore = round(
+                        $this->calculateScore(
+                            $answer['answer_value'],
+                            $category,
+                            $reverse,
+                            $weight
+                        ),
+                        2
+                    );
+                }
 
-                $answerRows[] = [
-                    'test_result_id' => $testResult->id,
-                    'question_id'    => $answer['question_id'],
-                    'answer_value'   => $answer['answer_value'],
-                    'final_score'    => $finalScore,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
-                ];
+                // Only insert answers that are NOT from SC Pro (for CERC tests)
+                // For SC Pro tests, insert all answers
+                if ($test->source !== 'CERC' || !$isFromScPro) {
+                    $answerRows[] = [
+                        'test_result_id' => $testResult->id,
+                        'question_id'    => $answer['question_id'],
+                        'answer_value'   => $answer['answer_value'],
+                        'final_score'    => $finalScore,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ];
+                }
 
+                // Always include in calculation (both SC Pro and CERC answers)
                 $userAnswersForCalc[] = [
                     'question_id' => $answer['question_id'],
                     'answer_value' => $answer['answer_value'],
@@ -300,21 +477,51 @@ class TestTakingController extends Controller
                 $testId
             ));
 
+            // 🔟 For SC Pro tests, include linked CERC test info in response
+            $cercTestInfo = null;
+            if ($test->source === 'SC Pro') {
+                $cercTests = Test::where('sc_pro_test_id', $test->id)
+                    ->where('source', 'CERC')
+                    ->where('is_active', true)
+                    ->get();
+                
+                if ($cercTests->count() > 0) {
+                    $cercTestInfo = $cercTests->map(function ($cercTest) {
+                        return [
+                            'id' => $cercTest->id,
+                            'title' => $cercTest->title,
+                            'description' => $cercTest->description,
+                            'source' => $cercTest->source,
+                        ];
+                    })->values();
+                }
+            }
+
+            $responseData = [
+                'test_result_id' => $testResult->id,
+                'total_score' => $totalScore,
+                'average_score' => $averageScore,
+                'average_percentage' => round($averagePercentage, 0),
+                'overall_category' => $overallCategory,
+                'cluster_scores' => $clusterScores,
+                'construct_scores' => $constructScores,
+                'sdb_flag' => $sdbFlag,
+                'radar_chart' => $radarChartData, // ✅ KEEP THIS
+                'total_questions_answered' => count($answerRows)
+            ];
+
+            // Add CERC test info if SC Pro test was completed
+            if ($cercTestInfo !== null) {
+                $responseData['available_cerc_tests'] = $cercTestInfo;
+                $responseData['has_cerc_tests'] = true;
+            } else {
+                $responseData['has_cerc_tests'] = false;
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Test submitted successfully',
-                'data' => [
-                    'test_result_id' => $testResult->id,
-                    'total_score' => $totalScore,
-                    'average_score' => $averageScore,
-                    'average_percentage' => round($averagePercentage, 0),
-                    'overall_category' => $overallCategory,
-                    'cluster_scores' => $clusterScores,
-                    'construct_scores' => $constructScores,
-                    'sdb_flag' => $sdbFlag,
-                    'radar_chart' => $radarChartData, // ✅ KEEP THIS
-                    'total_questions_answered' => count($answerRows)
-                ]
+                'data' => $responseData
             ], 201);
 
         } catch (\Throwable $e) {
@@ -715,6 +922,7 @@ private function calculateClusterScores($userAnswers, $test)
 
     /**
      * Get all test results for a user (lightweight - scores only)
+     * Now includes source information and groups SC Pro and CERC results
      */
     public function getUserResults($userId)
     {
@@ -731,6 +939,7 @@ private function calculateClusterScores($userAnswers, $test)
                 'test' => [
                     'id' => $testResult->test->id,
                     'title' => $testResult->test->title,
+                    'source' => $testResult->test->source ?? 'SC Pro',
                 ],
                 'scores' => [
                     'total_score' => $testResult->total_score,
@@ -750,6 +959,260 @@ private function calculateClusterScores($userAnswers, $test)
             'data' => $formattedResults,
             'message' => 'User test results fetched successfully'
         ], 200);
+    }
+
+    /**
+     * Check if user can take CERC test (has completed SC Pro)
+     */
+    public function checkCercEligibility(Request $request, $testId)
+    {
+        $test = Test::find($testId);
+        
+        if (!$test) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Test not found'
+            ], 404);
+        }
+        
+        if ($test->source !== 'CERC') {
+            return response()->json([
+                'status' => false,
+                'message' => 'This endpoint is only for CERC tests'
+            ], 422);
+        }
+        
+        $validator = Validator::make($request->all(), [
+            'user_id' => 'required|exists:users,id',
+        ]);
+        
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed'
+            ], 422);
+        }
+        
+        $userId = $request->input('user_id');
+        
+        // Find SC Pro test - use explicit mapping if available, otherwise fallback to age group
+        if ($test->sc_pro_test_id) {
+            // Use explicit mapping
+            $scProTest = Test::where('id', $test->sc_pro_test_id)
+                ->where('source', 'SC Pro')
+                ->where('is_active', true)
+                ->first();
+        } else {
+            // Fallback: Find SC Pro test for same age group (backward compatibility)
+            $scProTest = Test::where('source', 'SC Pro')
+                ->where('is_active', true)
+                ->where('age_group_id', $test->age_group_id)
+                ->first();
+        }
+        
+        if (!$scProTest) {
+            return response()->json([
+                'status' => false,
+                'can_take_cerc' => false,
+                'message' => 'SC Pro test not found for this age group',
+                'sc_pro_test' => null
+            ], 200);
+        }
+        
+        // Check if user has completed SC Pro test
+        $scProTestResult = TestResult::where('user_id', $userId)
+            ->where('test_id', $scProTest->id)
+            ->where('status', 'completed')
+            ->latest()
+            ->first();
+        
+        $canTakeCerc = $scProTestResult !== null;
+        
+        return response()->json([
+            'status' => true,
+            'can_take_cerc' => $canTakeCerc,
+            'message' => $canTakeCerc 
+                ? 'User is eligible to take CERC test' 
+                : 'User must complete SC Pro test first',
+            'sc_pro_test' => [
+                'id' => $scProTest->id,
+                'title' => $scProTest->title,
+                'description' => $scProTest->description,
+            ],
+            'sc_pro_test_result' => $scProTestResult ? [
+                'id' => $scProTestResult->id,
+                'completed_at' => $scProTestResult->created_at,
+            ] : null
+        ], 200);
+    }
+
+    /**
+     * Get available tests for a user (SC Pro and CERC if eligible)
+     */
+    public function getAvailableTests(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'user_id' => 'required|exists:users,id',
+            'age_group_id' => 'nullable|exists:age_groups,id',
+        ]);
+        
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed'
+            ], 422);
+        }
+        
+        $userId = $request->input('user_id');
+        $ageGroupId = $request->input('age_group_id');
+        
+        // Get all active tests
+        $query = Test::where('is_active', true);
+        
+        if ($ageGroupId) {
+            $query->where('age_group_id', $ageGroupId);
+        }
+        
+        $tests = $query->get();
+        
+        // Get user's completed test results
+        $userTestResults = TestResult::where('user_id', $userId)
+            ->where('status', 'completed')
+            ->pluck('test_id')
+            ->toArray();
+        
+        $availableTests = $tests->map(function ($test) use ($userId, $userTestResults) {
+            $isCompleted = in_array($test->id, $userTestResults);
+            $canTake = true;
+            $requiresScPro = false;
+            $scProTestInfo = null;
+            
+            // For CERC tests, check if user has completed SC Pro
+            if ($test->source === 'CERC') {
+                // Find SC Pro test - use explicit mapping if available, otherwise fallback to age group
+                if ($test->sc_pro_test_id) {
+                    // Use explicit mapping
+                    $scProTest = Test::where('id', $test->sc_pro_test_id)
+                        ->where('source', 'SC Pro')
+                        ->where('is_active', true)
+                        ->first();
+                } else {
+                    // Fallback: Find SC Pro test for same age group (backward compatibility)
+                    $scProTest = Test::where('source', 'SC Pro')
+                        ->where('is_active', true)
+                        ->where('age_group_id', $test->age_group_id)
+                        ->first();
+                }
+                
+                if ($scProTest) {
+                    $scProCompleted = in_array($scProTest->id, $userTestResults);
+                    $canTake = $scProCompleted;
+                    $requiresScPro = true;
+                    
+                    $scProTestResult = TestResult::where('user_id', $userId)
+                        ->where('test_id', $scProTest->id)
+                        ->where('status', 'completed')
+                        ->latest()
+                        ->first();
+                    
+                    $scProTestInfo = [
+                        'id' => $scProTest->id,
+                        'title' => $scProTest->title,
+                        'is_completed' => $scProCompleted,
+                        'test_result_id' => $scProTestResult ? $scProTestResult->id : null,
+                    ];
+                }
+            }
+            
+            return [
+                'id' => $test->id,
+                'title' => $test->title,
+                'description' => $test->description,
+                'source' => $test->source ?? 'SC Pro',
+                'age_group_id' => $test->age_group_id,
+                'is_completed' => $isCompleted,
+                'can_take' => $canTake,
+                'requires_sc_pro' => $requiresScPro,
+                'sc_pro_test' => $scProTestInfo,
+            ];
+        });
+        
+        return response()->json([
+            'status' => true,
+            'data' => $availableTests,
+            'message' => 'Available tests fetched successfully'
+        ], 200);
+    }
+
+    /**
+     * Get user test results grouped by source (SC Pro and CERC mapped together)
+     */
+    public function getUserResultsBySource($userId)
+    {
+        $testResults = TestResult::with(['test'])
+            ->where('user_id', $userId)
+            ->where('status', 'completed')
+            ->orderBy('created_at', 'desc')
+            ->get();
+        
+        // Group by source
+        $scProResults = $testResults->filter(function ($result) {
+            return ($result->test->source ?? 'SC Pro') === 'SC Pro';
+        });
+        
+        $cercResults = $testResults->filter(function ($result) {
+            return ($result->test->source ?? 'SC Pro') === 'CERC';
+        });
+        
+        $formatResult = function ($testResult) {
+            $radarChartData = $this->formatRadarChartData($testResult->cluster_scores);
+            
+            return [
+                'test_result_id' => $testResult->id,
+                'test' => [
+                    'id' => $testResult->test->id,
+                    'title' => $testResult->test->title,
+                    'source' => $testResult->test->source ?? 'SC Pro',
+                ],
+                'scores' => [
+                    'total_score' => $testResult->total_score,
+                    'average_score' => $testResult->average_score,
+                    'average_percentage' => round($this->convertToPercentage($testResult->average_score ?? 0), 0),
+                    'cluster_scores' => $testResult->cluster_scores,
+                    'construct_scores' => $testResult->construct_scores,
+                ],
+                'radar_chart' => $radarChartData,
+                'submitted_at' => $testResult->created_at,
+            ];
+        };
+        
+        // Get the latest SC Pro and CERC results
+        $latestScPro = $scProResults->first();
+        $latestCerc = $cercResults->first();
+        
+        $response = [
+            'status' => true,
+            'data' => [
+                'sc_pro' => [
+                    'has_completed' => $scProResults->count() > 0,
+                    'latest_result' => $latestScPro ? $formatResult($latestScPro) : null,
+                    'all_results' => $scProResults->map($formatResult)->values(),
+                    'total_completed' => $scProResults->count(),
+                ],
+                'cerc' => [
+                    'has_completed' => $cercResults->count() > 0,
+                    'can_take' => $scProResults->count() > 0, // Can take if SC Pro is completed
+                    'latest_result' => $latestCerc ? $formatResult($latestCerc) : null,
+                    'all_results' => $cercResults->map($formatResult)->values(),
+                    'total_completed' => $cercResults->count(),
+                ],
+            ],
+            'message' => 'User test results by source fetched successfully'
+        ];
+        
+        return response()->json($response, 200);
     }
 
     /**

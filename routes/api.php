@@ -145,6 +145,7 @@ Route::post('tests/{id}/clusters/detach', [TestController::class, 'detachCluster
 // Test Questions and Constructs
 Route::get('tests/{id}/questions', [TestController::class, 'getQuestions']);
 Route::get('tests/{id}/constructs', [TestController::class, 'getConstructs']);
+Route::get('tests/{id}/cerc-tests', [TestController::class, 'getCercTestsForScPro']); // Get CERC tests linked to an SC Pro test
 
 // Test Question Selection
 Route::put('tests/{testId}/clusters/{clusterId}/category-counts', [TestController::class, 'setClusterCategoryCounts']);
@@ -161,6 +162,9 @@ Route::post('tests/{testId}/submit', [TestTakingController::class, 'submitAnswer
 Route::get('test-results/{testResultId}', [TestTakingController::class, 'getResults']); // Get specific test result (scores only)
 Route::get('test-results/{testResultId}/answers', [TestTakingController::class, 'getTestResultAnswers']); // Get questions and answers for a test result
 Route::get('users/{userId}/test-results', [TestTakingController::class, 'getUserResults']); // Get all results for a user (scores only)
+Route::get('users/{userId}/test-results/by-source', [TestTakingController::class, 'getUserResultsBySource']); // Get user test results grouped by source (SC Pro and CERC)
+Route::get('tests/available', [TestTakingController::class, 'getAvailableTests']); // Get available tests for a user (SC Pro and CERC eligibility)
+Route::post('tests/{testId}/check-cerc-eligibility', [TestTakingController::class, 'checkCercEligibility']); // Check if user can take CERC test
 Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test (scores only)
 Route::get('test-results-comprehensive/all', [TestTakingController::class, 'getAllTestResultsComprehensive']); // Get all test results with comprehensive data for all users
 Route::get('test-results-comprehensive/export', [TestTakingController::class, 'downloadTestResultsExcel']); // Download Excel (previous format: Cluster, Construct, Questions + users)

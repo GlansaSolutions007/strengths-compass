@@ -25,7 +25,8 @@ class Construct extends Model
         'case_example',
         'display_order',
         'is_active',
-        'is_deleted'
+        'is_deleted',
+        'source'
     ];
 
     public function cluster()

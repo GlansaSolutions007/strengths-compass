@@ -23,15 +23,17 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
 
     protected $testId;
     protected $ageGroupId;
+    protected $testSource;
     protected $errors = [];
     protected $successCount = 0;
     protected $failureCount = 0;
     protected $createdQuestions = [];
 
-    public function __construct($testId = null, $ageGroupId = null)
+    public function __construct($testId = null, $ageGroupId = null, $testSource = null)
     {
         $this->testId = $testId;
         $this->ageGroupId = $ageGroupId;
+        $this->testSource = $testSource ?? 'SC Pro'; // Default to SC Pro
     }
 
     /**
@@ -182,6 +184,15 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
         }
 
         // Create and save question immediately
+        // Source can come from Excel row, or default to test source
+        $source = $this->testSource;
+        if (isset($row['Source']) || isset($row['source'])) {
+            $sourceFromRow = strtoupper(trim($row['Source'] ?? $row['source'] ?? ''));
+            if (in_array($sourceFromRow, ['SC PRO', 'CERC'])) {
+                $source = $sourceFromRow === 'SC PRO' ? 'SC Pro' : 'CERC';
+            }
+        }
+        
         $question = Question::create([
             'construct_id' => $construct->id,
             'question_text' => $questionText,
@@ -189,6 +200,7 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
             'category' => $category,
             'order_no' => 0,
             'is_active' => true,
+            'source' => $source,
         ]);
 
         $this->successCount++;
