@@ -12,14 +12,14 @@ return new class extends Migration
     public function up(): void
     {
         if (!Schema::hasColumn('tests', 'sc_pro_test_id')) {
-            Schema::table('tests', function (Blueprint $table) {
+        Schema::table('tests', function (Blueprint $table) {
                 $table->foreignId('sc_pro_test_id')
                     ->nullable()
                     ->after('source')
                     ->constrained('tests')
                     ->onDelete('set null')
                     ->comment('For CERC tests: links to the corresponding SC Pro test');
-            });
+        });
         }
     }
 
@@ -29,10 +29,10 @@ return new class extends Migration
     public function down(): void
     {
         if (Schema::hasColumn('tests', 'sc_pro_test_id')) {
-            Schema::table('tests', function (Blueprint $table) {
+        Schema::table('tests', function (Blueprint $table) {
                 $table->dropForeign(['sc_pro_test_id']);
                 $table->dropColumn('sc_pro_test_id');
-            });
+        });
         }
     }
 };

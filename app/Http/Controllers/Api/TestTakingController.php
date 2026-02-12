@@ -152,8 +152,14 @@ class TestTakingController extends Controller
             }
         }
 
-        // Get all options (same for every question)
-        $options = OptionsModel::orderBy('value')->get();
+        // Get all options (same for every question) and format them
+        $options = OptionsModel::orderBy('value')->get()->map(function ($option) {
+            return [
+                'id' => $option->id,
+                'label' => $option->label,
+                'value' => $option->value,
+            ];
+        })->values();
 
         // Handle language translation
         $lang = $request->input('lang', 'en');
@@ -239,6 +245,9 @@ class TestTakingController extends Controller
             }
         }
 
+        // Track if questions were filtered (for CERC tests)
+        $questionsFiltered = ($test->source === 'CERC' && $scProTestResult !== null);
+
         $responseData = [
             'test' => [
                 'id' => $test->id,
@@ -248,7 +257,8 @@ class TestTakingController extends Controller
             ],
             'questions' => $questions,
             'options' => $options,
-            'total_questions' => $questions->count()
+            'total_questions' => $questions->count(),
+            'questions_filtered' => $questionsFiltered, // Flag to indicate filtering was applied
         ];
 
         // Add CERC test info if available
@@ -270,6 +280,42 @@ class TestTakingController extends Controller
     public function submitAnswers(Request $request, $testId)
     {
         // 1️⃣ Verify Test
+        $test = $this->validateTest($testId);
+        if ($test instanceof \Illuminate\Http\JsonResponse) {
+            return $test;
+        }
+
+        // 2️⃣ Validate Request
+        $validationResult = $this->validateTestSubmission($request, $test);
+        if ($validationResult instanceof \Illuminate\Http\JsonResponse) {
+            return $validationResult;
+        }
+
+        $userId = $request->input('user_id');
+        $answers = $request->input('answers');
+        $isConsent = $request->boolean('is_consent', false);
+
+        // 3️⃣ Combine answers (for CERC tests, merge with SC Pro answers)
+        $combinedAnswers = $this->combineAnswersForTest($test, $userId, $answers);
+
+        $result = $this->processAndSaveTestAnswers($test, $testId, $userId, $isConsent, $combinedAnswers);
+        
+        if ($result instanceof \Illuminate\Http\JsonResponse) {
+            return $result;
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Test submitted successfully',
+            'data' => $result
+        ], 201);
+    }
+
+    /**
+     * Validate and get test
+     */
+    private function validateTest($testId)
+    {
         $test = Test::with('selectedQuestions')->find($testId);
         if (!$test) {
             return response()->json([
@@ -277,16 +323,22 @@ class TestTakingController extends Controller
                 'message' => 'Test not found'
             ], 404);
         }
+        return $test;
+    }
 
+    /**
+     * Validate test submission request
+     */
+    private function validateTestSubmission($request, $test, $testId = null)
+    {
+        $testId = $testId ?? $test->id;
         $validQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
 
-        // 2️⃣ Validation (KEEP STRICT CONSENT VALIDATION)
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
             'is_consent' => [
                 'required',
                 function ($attribute, $value, $fail) {
-                    // Consent must be true/checked (accepts: true, 1, '1', 'true', 'yes', 'on')
                     if (!filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)) {
                         $fail('You must provide consent to take this assessment. Please check the consent checkbox.');
                     }
@@ -314,208 +366,116 @@ class TestTakingController extends Controller
             ], 422);
         }
 
-        $userId = $request->input('user_id');
-        $answers = $request->input('answers');
-        $isConsent = $request->boolean('is_consent', false);
+        return null;
+    }
 
-        // For CERC tests, we need to combine answers from SC Pro test (for overlapping questions)
-        // and current CERC test (for new questions)
-        $combinedAnswers = $answers;
-        $scProQuestionIds = [];
-        
-        if ($test->source === 'CERC') {
-            // Find the user's completed SC Pro test
+    /**
+     * Combine SC Pro and CERC answers for CERC tests
+     */
+    private function combineAnswersForTest($test, $userId, $answers)
+    {
+        if ($test->source !== 'CERC') {
+            return $answers;
+        }
+
+        // Find SC Pro test - use explicit mapping if available
+        if ($test->sc_pro_test_id) {
+            $scProTest = Test::where('id', $test->sc_pro_test_id)
+                ->where('source', 'SC Pro')
+                ->where('is_active', true)
+                ->first();
+        } else {
             $scProTest = Test::where('source', 'SC Pro')
                 ->where('is_active', true)
-                ->where('age_group_id', $test->age_group_id) // Same age group
+                ->where('age_group_id', $test->age_group_id)
                 ->first();
-            
-            if ($scProTest) {
-                // Get SC Pro test result
-                $scProTestResult = TestResult::where('user_id', $userId)
-                    ->where('test_id', $scProTest->id)
-                    ->where('status', 'completed')
-                    ->latest()
-                    ->first();
-                
-                if ($scProTestResult) {
-                    // Get all questions in CERC test (both SC Pro and CERC sources)
-                    $cercTestQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
-                    
-                    // Get SC Pro answers for questions that are also in CERC test
-                    $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)
-                        ->whereIn('question_id', $cercTestQuestionIds)
-                        ->with('question')
-                        ->get();
-                    
-                    // Get question IDs from SC Pro answers
-                    $scProQuestionIds = $scProAnswers->pluck('question_id')->toArray();
-                    
-                    // Convert SC Pro answers to the same format as current answers
-                    $scProAnswersFormatted = $scProAnswers->map(function ($userAnswer) {
-                        return [
-                            'question_id' => $userAnswer->question_id,
-                            'answer_value' => $userAnswer->answer_value,
-                            'final_score' => $userAnswer->final_score, // Use already calculated final_score
-                            'from_sc_pro' => true // Flag to indicate this came from SC Pro
-                        ];
-                    })->toArray();
-                    
-                    // Merge: Use SC Pro answers for overlapping questions, CERC answers for new questions
-                    // Create a map of current answers by question_id
-                    $currentAnswersMap = collect($answers)->keyBy('question_id');
-                    
-                    // Start with SC Pro answers
-                    $combinedAnswers = $scProAnswersFormatted;
-                    
-                    // Add/override with CERC answers for questions not in SC Pro
-                    foreach ($answers as $cercAnswer) {
-                        if (!in_array($cercAnswer['question_id'], $scProQuestionIds)) {
-                            $cercAnswer['from_sc_pro'] = false;
-                            $combinedAnswers[] = $cercAnswer;
-                        }
-                    }
-                }
+        }
+
+        if (!$scProTest) {
+            return $answers;
+        }
+
+        $scProTestResult = TestResult::where('user_id', $userId)
+            ->where('test_id', $scProTest->id)
+            ->where('status', 'completed')
+            ->latest()
+            ->first();
+
+        if (!$scProTestResult) {
+            return $answers;
+        }
+
+        $cercTestQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
+        $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)
+            ->whereIn('question_id', $cercTestQuestionIds)
+            ->get();
+
+        $scProQuestionIds = $scProAnswers->pluck('question_id')->toArray();
+        $scProAnswersFormatted = $scProAnswers->map(function ($userAnswer) {
+            return [
+                'question_id' => $userAnswer->question_id,
+                'answer_value' => $userAnswer->answer_value,
+                'final_score' => $userAnswer->final_score,
+                'from_sc_pro' => true
+            ];
+        })->toArray();
+
+        $combinedAnswers = $scProAnswersFormatted;
+        foreach ($answers as $cercAnswer) {
+            if (!in_array($cercAnswer['question_id'], $scProQuestionIds)) {
+                $cercAnswer['from_sc_pro'] = false;
+                $combinedAnswers[] = $cercAnswer;
             }
         }
 
-        // 3️⃣ Preload ALL questions & scoring rules (NO N+1)
-        $questionIds = collect($combinedAnswers)->pluck('question_id')->unique();
+        return $combinedAnswers;
+    }
 
+    /**
+     * Process and save test answers
+     */
+    private function processAndSaveTestAnswers($test, $testId, $userId, $isConsent, $combinedAnswers)
+    {
+        $questionIds = collect($combinedAnswers)->pluck('question_id')->unique();
         $questions = QuestionsModel::with('construct.cluster')
             ->whereIn('id', $questionIds)
             ->get()
             ->keyBy('id');
-
         $scoringRules = ScoringRule::whereIn('question_id', $questionIds)
             ->get()
             ->keyBy('question_id');
 
         DB::beginTransaction();
         try {
-            // 4️⃣ Create Test Result (FAST)
             $testResult = TestResult::create([
-                'user_id'    => $userId,
-                'test_id'    => $testId,
-                'status'     => 'completed',
+                'user_id' => $userId,
+                'test_id' => $testId,
+                'status' => 'completed',
                 'is_consent' => $isConsent
             ]);
 
-            // 5️⃣ Prepare Batch Insert
-            // For CERC tests, only insert answers that are NOT from SC Pro (new questions)
-            // For SC Pro tests, insert all answers
-            $answerRows = [];
-            $userAnswersForCalc = [];
+            $processedData = $this->processAnswers($test, $testResult, $combinedAnswers, $questions, $scoringRules);
+            DB::table('user_answers')->insert($processedData['answerRows']);
 
-            $totalScore = 0;
-            $questionCount = 0;
-
-            foreach ($combinedAnswers as $answer) {
-                // For CERC tests, only store new answers (not from SC Pro) in user_answers table
-                // SC Pro answers are already stored, we just use them for calculation
-                $isFromScPro = isset($answer['from_sc_pro']) && $answer['from_sc_pro'] === true;
-                
-                $question = $questions[$answer['question_id']] ?? null;
-                if (!$question) continue;
-
-                $rule = $scoringRules[$answer['question_id']] ?? null;
-
-                $category = $rule->category ?? $question->category;
-                $reverse  = $rule->reverse_score ?? false;
-                $weight   = $rule->weight ?? 1.0;
-
-                // SDB questions are ALWAYS excluded from construct/cluster calculations
-                if (strtoupper($category) === 'SDB') {
-                    $includeInConstruct = false;
-                } else {
-                    $includeInConstruct = $rule->include_in_construct ?? true;
-                }
-
-                // For SC Pro answers, use the already calculated final_score
-                // For new CERC answers, calculate the final_score
-                if ($isFromScPro && isset($answer['final_score'])) {
-                    $finalScore = $answer['final_score'];
-                } else {
-                    $finalScore = round(
-                        $this->calculateScore(
-                            $answer['answer_value'],
-                            $category,
-                            $reverse,
-                            $weight
-                        ),
-                        2
-                    );
-                }
-
-                // Only insert answers that are NOT from SC Pro (for CERC tests)
-                // For SC Pro tests, insert all answers
-                if ($test->source !== 'CERC' || !$isFromScPro) {
-                    $answerRows[] = [
-                        'test_result_id' => $testResult->id,
-                        'question_id'    => $answer['question_id'],
-                        'answer_value'   => $answer['answer_value'],
-                        'final_score'    => $finalScore,
-                        'created_at'     => now(),
-                        'updated_at'     => now(),
-                    ];
-                }
-
-                // Always include in calculation (both SC Pro and CERC answers)
-                $userAnswersForCalc[] = [
-                    'question_id' => $answer['question_id'],
-                    'answer_value' => $answer['answer_value'],
-                    'final_score' => $finalScore,
-                    'category'    => $category,
-                    'include_in_construct' => $includeInConstruct
-                ];
-
-                if ($includeInConstruct) {
-                    $totalScore += $finalScore;
-                    $questionCount++;
-                }
-            }
-
-            // 6️⃣ Batch Insert Answers (🔥 BIGGEST PERFORMANCE WIN)
-            DB::table('user_answers')->insert($answerRows);
-
-            // 7️⃣ Calculations
-            $averageScore = $questionCount > 0
-                ? round($totalScore / $questionCount, 2)
-                : 0;
-
-            $totalScore = round($totalScore, 2);
-            $averagePercentage = $this->convertToPercentage($averageScore);
-
-            $clusterScores   = $this->calculateClusterScores($userAnswersForCalc, $test);
-            $constructScores = $this->calculateConstructScores($userAnswersForCalc, $test);
-            $sdbFlag         = $this->checkSDBFlag($userAnswersForCalc);
-            $overallCategory = $this->categorizeScore($averageScore);
-
-            // Format radar chart data (KEEP THIS)
-            $radarChartData = $this->formatRadarChartData($clusterScores);
-
-            // 8️⃣ Update Test Result (SHORT LOCK)
-            $testResult->update([
-                'total_score'      => $totalScore,
-                'average_score'    => $averageScore,
-                'overall_category' => $overallCategory,
-                'cluster_scores'   => $clusterScores,
-                'construct_scores' => $constructScores,
-                'sdb_flag'         => $sdbFlag,
-            ]);
-
+            $scores = $this->calculateAllScores($processedData['userAnswersForCalc'], $test);
+            $testResult->update($scores);
             DB::commit();
 
-            // 9️⃣ Queue Emails (DO NOT BLOCK USER)
-            // Dispatch email job to queue - emails will be sent asynchronously
-            dispatch(new SendTestCompletionEmails(
-                $testResult->id,
-                $userId,
-                $testId
-            ));
+            dispatch(new SendTestCompletionEmails($testResult->id, $userId, $testId));
 
-            // 🔟 For SC Pro tests, include linked CERC test info in response
-            $cercTestInfo = null;
+            $responseData = [
+                'test_result_id' => $testResult->id,
+                'total_score' => $scores['total_score'],
+                'average_score' => $scores['average_score'],
+                'average_percentage' => round($this->convertToPercentage($scores['average_score']), 0),
+                'overall_category' => $scores['overall_category'],
+                'cluster_scores' => $scores['cluster_scores'],
+                'construct_scores' => $scores['construct_scores'],
+                'sdb_flag' => $scores['sdb_flag'],
+                'radar_chart' => $this->formatRadarChartData($scores['cluster_scores']),
+                'total_questions_answered' => count($processedData['answerRows'])
+            ];
+
             if ($test->source === 'SC Pro') {
                 $cercTests = Test::where('sc_pro_test_id', $test->id)
                     ->where('source', 'CERC')
@@ -523,7 +483,7 @@ class TestTakingController extends Controller
                     ->get();
                 
                 if ($cercTests->count() > 0) {
-                    $cercTestInfo = $cercTests->map(function ($cercTest) {
+                    $responseData['available_cerc_tests'] = $cercTests->map(function ($cercTest) {
                         return [
                             'id' => $cercTest->id,
                             'title' => $cercTest->title,
@@ -531,49 +491,112 @@ class TestTakingController extends Controller
                             'source' => $cercTest->source,
                         ];
                     })->values();
+                    $responseData['has_cerc_tests'] = true;
+                } else {
+                    $responseData['has_cerc_tests'] = false;
                 }
-            }
-
-            $responseData = [
-                'test_result_id' => $testResult->id,
-                'total_score' => $totalScore,
-                'average_score' => $averageScore,
-                'average_percentage' => round($averagePercentage, 0),
-                'overall_category' => $overallCategory,
-                'cluster_scores' => $clusterScores,
-                'construct_scores' => $constructScores,
-                'sdb_flag' => $sdbFlag,
-                'radar_chart' => $radarChartData, // ✅ KEEP THIS
-                'total_questions_answered' => count($answerRows)
-            ];
-
-            // Add CERC test info if SC Pro test was completed
-            if ($cercTestInfo !== null) {
-                $responseData['available_cerc_tests'] = $cercTestInfo;
-                $responseData['has_cerc_tests'] = true;
             } else {
                 $responseData['has_cerc_tests'] = false;
             }
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Test submitted successfully',
-                'data' => $responseData
-            ], 201);
-
+            return $responseData;
         } catch (\Throwable $e) {
             DB::rollBack();
-
             \Log::error('Test submission failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-
             return response()->json([
                 'status' => false,
                 'message' => 'Error submitting test: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Process answers and prepare for insertion
+     */
+    private function processAnswers($test, $testResult, $combinedAnswers, $questions, $scoringRules)
+    {
+        $answerRows = [];
+        $userAnswersForCalc = [];
+        $totalScore = 0;
+        $questionCount = 0;
+
+        foreach ($combinedAnswers as $answer) {
+            $isFromScPro = isset($answer['from_sc_pro']) && $answer['from_sc_pro'] === true;
+            $question = $questions[$answer['question_id']] ?? null;
+            if (!$question) continue;
+
+            $rule = $scoringRules[$answer['question_id']] ?? null;
+            $category = $rule->category ?? $question->category;
+            $reverse = $rule->reverse_score ?? false;
+            $weight = $rule->weight ?? 1.0;
+            $includeInConstruct = (strtoupper($category) === 'SDB') ? false : ($rule->include_in_construct ?? true);
+
+            $finalScore = ($isFromScPro && isset($answer['final_score'])) 
+                ? $answer['final_score'] 
+                : round($this->calculateScore($answer['answer_value'], $category, $reverse, $weight), 2);
+
+            if ($test->source !== 'CERC' || !$isFromScPro) {
+                $answerRows[] = [
+                    'test_result_id' => $testResult->id,
+                    'question_id' => $answer['question_id'],
+                    'answer_value' => $answer['answer_value'],
+                    'final_score' => $finalScore,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+
+            $userAnswersForCalc[] = [
+                'question_id' => $answer['question_id'],
+                'answer_value' => $answer['answer_value'],
+                'final_score' => $finalScore,
+                'category' => $category,
+                'include_in_construct' => $includeInConstruct
+            ];
+
+            if ($includeInConstruct) {
+                $totalScore += $finalScore;
+                $questionCount++;
+            }
+        }
+
+        return [
+            'answerRows' => $answerRows,
+            'userAnswersForCalc' => $userAnswersForCalc,
+            'totalScore' => $totalScore,
+            'questionCount' => $questionCount
+        ];
+    }
+
+    /**
+     * Calculate all scores for test result
+     */
+    private function calculateAllScores($userAnswersForCalc, $test)
+    {
+        $totalScore = 0;
+        $questionCount = 0;
+        
+        foreach ($userAnswersForCalc as $answer) {
+            if ($answer['include_in_construct'] ?? false) {
+                $totalScore += $answer['final_score'];
+                $questionCount++;
+            }
+        }
+        
+        $averageScore = $questionCount > 0 ? round($totalScore / $questionCount, 2) : 0;
+        $totalScore = round($totalScore, 2);
+
+        return [
+            'total_score' => $totalScore,
+            'average_score' => $averageScore,
+            'overall_category' => $this->categorizeScore($averageScore),
+            'cluster_scores' => $this->calculateClusterScores($userAnswersForCalc, $test),
+            'construct_scores' => $this->calculateConstructScores($userAnswersForCalc, $test),
+            'sdb_flag' => $this->checkSDBFlag($userAnswersForCalc),
+        ];
     }
 
     /**

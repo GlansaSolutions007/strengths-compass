@@ -36,7 +36,7 @@ return new class extends Migration
         if (!Schema::hasColumn('tests', 'source')) {
             Schema::table('tests', function (Blueprint $table) {
                 $table->enum('source', ['SC Pro', 'CERC'])->default('SC Pro')->after('description');
-            });
+        });
         }
     }
 
@@ -70,7 +70,7 @@ return new class extends Migration
         if (Schema::hasColumn('tests', 'source')) {
             Schema::table('tests', function (Blueprint $table) {
                 $table->dropColumn('source');
-            });
+        });
         }
     }
 };
