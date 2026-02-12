@@ -1,7 +1,14 @@
 # CERC Question Filtering Issue - Analysis & Fix
 
 ## Problem
-Questions that were already answered in SC Pro tests are still appearing in CERC tests, even though the backend is filtering them correctly.
+Questions that were already answered in SC Pro tests are still appearing in CERC tests. This happens because:
+
+1. **Different Question IDs for Same Text**: When questions are imported from Excel for both SC Pro and CERC tests, they get different database IDs even if the question text is identical.
+   - Example: SC Pro has question ID `1` with text "What is your strength?"
+   - CERC has question ID `100` with text "What is your strength?" (same text, different ID)
+   - The old filtering logic only checked question IDs, so it wouldn't filter out question `100` even though it has the same text as question `1`.
+
+2. **Frontend Fallback Logic**: The frontend has a fallback mechanism that merges with the `/questions` endpoint, which could reintroduce filtered questions.
 
 ## Root Cause Analysis
 
@@ -34,7 +41,80 @@ The frontend has a fallback mechanism that can reintroduce filtered questions:
 
 ## Backend Fixes Applied
 
-### 1. Formatted Options Response
+### 1. **Text-Based Question Filtering** (Primary Fix)
+Updated filtering logic to match questions by **question text** (normalized) in addition to question ID:
+
+```php
+// Get answered questions with their text
+$answeredQuestions = UserAnswer::where('test_result_id', $scProTestResult->id)
+    ->with('question:id,question_text')
+    ->get();
+
+// Create normalized set of answered question texts
+$answeredQuestionTexts = $answeredQuestions->map(function ($userAnswer) {
+    if ($userAnswer->question) {
+        return $this->normalizeQuestionText($userAnswer->question->question_text);
+    }
+    return null;
+})->filter()->unique()->toArray();
+
+// Filter CERC questions by both ID and text
+foreach ($selectedQuestions as $question) {
+    $shouldExclude = false;
+    
+    // Check by question ID (exact match)
+    if (in_array($question->id, $answeredQuestionIds)) {
+        $shouldExclude = true;
+    }
+    // Check by question text (normalized comparison)
+    elseif (!empty($answeredQuestionTexts)) {
+        $normalizedCercQuestionText = $this->normalizeQuestionText($question->question_text);
+        if (in_array($normalizedCercQuestionText, $answeredQuestionTexts)) {
+            $shouldExclude = true;
+        }
+    }
+    
+    if (!$shouldExclude) {
+        $filteredQuestions->push($question);
+    }
+}
+```
+
+**Helper Method:**
+```php
+private function normalizeQuestionText($questionText)
+{
+    if (empty($questionText)) {
+        return '';
+    }
+    // Trim whitespace and normalize to lowercase for case-insensitive comparison
+    return mb_strtolower(trim($questionText), 'UTF-8');
+}
+```
+
+### 2. **Updated Answer Combination Logic**
+Updated `combineAnswersForTest()` to also match by question text when combining SC Pro and CERC answers for reports:
+
+```php
+// Create maps for both ID and text-based matching
+$scProAnswersByText = [];
+$scProAnswersById = [];
+
+foreach ($scProAnswers as $scProAnswer) {
+    // Store by ID for exact matches
+    $scProAnswersById[$scProAnswer->question_id] = $scProAnswer;
+    
+    // Store by normalized text for text-based matching
+    $normalizedText = $this->normalizeQuestionText($scProAnswer->question->question_text);
+    if (!isset($scProAnswersByText[$normalizedText])) {
+        $scProAnswersByText[$normalizedText] = $scProAnswer;
+    }
+}
+
+// Match CERC questions to SC Pro answers by both ID and text
+```
+
+### 3. Formatted Options Response
 ```php
 // Before: Raw Eloquent collection
 $options = OptionsModel::orderBy('value')->get();
@@ -49,7 +129,7 @@ $options = OptionsModel::orderBy('value')->get()->map(function ($option) {
 })->values();
 ```
 
-### 2. Added Filtering Flag
+### 4. Added Filtering Flag
 ```php
 $responseData = [
     // ... other fields
@@ -188,12 +268,27 @@ if (testQuestionIds.length > 0) {
 
 ## Summary
 
-**Backend**: ✅ Fixed - Options are now properly formatted, filtering flag added
+**Backend**: ✅ **FIXED** - The core issue was filtering by question ID only. Now filtering works by:
+1. **Question ID** (for exact matches)
+2. **Question Text** (normalized, case-insensitive) - **This is the key fix**
+3. Options are properly formatted
+4. Filtering flag added to response
 
 **Frontend**: ⚠️ Needs update - Ensure direct path is used for filtered questions, or fix fallback logic to respect filtered question IDs
 
-The main issue is that the frontend's fallback merge logic might be adding back questions that were filtered out. The fix ensures that:
-1. Options are properly formatted so the direct path works
-2. A flag indicates when filtering was applied
-3. Frontend should prioritize the direct path for CERC tests
+## Key Changes
+
+### Problem
+- SC Pro and CERC tests have different question IDs for the same question text when imported from Excel
+- Old filtering only checked IDs, so questions with same text but different IDs weren't filtered
+
+### Solution
+- Filter by **both** question ID and question text (normalized)
+- Normalize text by trimming whitespace and converting to lowercase
+- Apply same logic to both question filtering and answer combination
+
+### Result
+- Questions with same text (even if different IDs) are now correctly filtered out
+- CERC tests only show truly new questions
+- Reports correctly combine answers from SC Pro and CERC based on question text matching
 

@@ -102,10 +102,25 @@ class TestTakingController extends Controller
             }
             
             // Filter out questions already answered in SC Pro test
-            // Use the test_result_id directly for better performance and accuracy
-            $answeredQuestionIds = UserAnswer::where('test_result_id', $scProTestResult->id)
-                ->pluck('question_id')
-                ->toArray();
+            // IMPORTANT: Filter by question text (not just ID) because SC Pro and CERC tests
+            // may have different question IDs for the same question text when imported from Excel
+            
+            // Get answered questions with their text for comparison
+            $answeredQuestions = UserAnswer::where('test_result_id', $scProTestResult->id)
+                ->with('question:id,question_text')
+                ->get();
+            
+            // Create a normalized set of answered question texts for comparison
+            // Normalize by trimming and converting to lowercase for case-insensitive matching
+            $answeredQuestionTexts = $answeredQuestions->map(function ($userAnswer) {
+                if ($userAnswer->question) {
+                    return $this->normalizeQuestionText($userAnswer->question->question_text);
+                }
+                return null;
+            })->filter()->unique()->toArray();
+            
+            // Also keep question IDs for backward compatibility (in case some questions match by ID)
+            $answeredQuestionIds = $answeredQuestions->pluck('question_id')->toArray();
             
             // Log for debugging
             \Log::info('CERC Test Question Filtering', [
@@ -117,18 +132,34 @@ class TestTakingController extends Controller
                 'user_id' => $userId,
                 'total_cerc_questions_before_filter' => $selectedQuestions->count(),
                 'answered_question_ids' => $answeredQuestionIds,
+                'answered_question_texts_count' => count($answeredQuestionTexts),
                 'answered_count' => count($answeredQuestionIds),
                 'cerc_question_ids_before' => $selectedQuestions->pluck('id')->toArray()
             ]);
             
             // Filter out already answered questions from CERC test
-            if (!empty($answeredQuestionIds)) {
+            // Check both by ID (for exact matches) and by question text (for same text, different ID)
+            if (!empty($answeredQuestionIds) || !empty($answeredQuestionTexts)) {
                 $originalCount = $selectedQuestions->count();
                 
-                // Use a more explicit filtering approach to ensure it works
+                // Use a more explicit filtering approach
                 $filteredQuestions = collect();
                 foreach ($selectedQuestions as $question) {
-                    if (!in_array($question->id, $answeredQuestionIds)) {
+                    $shouldExclude = false;
+                    
+                    // Check by question ID first (exact match)
+                    if (in_array($question->id, $answeredQuestionIds)) {
+                        $shouldExclude = true;
+                    }
+                    // Check by question text (normalized comparison for same text, different ID)
+                    elseif (!empty($answeredQuestionTexts)) {
+                        $normalizedCercQuestionText = $this->normalizeQuestionText($question->question_text);
+                        if (in_array($normalizedCercQuestionText, $answeredQuestionTexts)) {
+                            $shouldExclude = true;
+                        }
+                    }
+                    
+                    if (!$shouldExclude) {
                         $filteredQuestions->push($question);
                     }
                 }
@@ -139,7 +170,8 @@ class TestTakingController extends Controller
                     'original_count' => $originalCount,
                     'filtered_count' => $selectedQuestions->count(),
                     'filtered_out' => $originalCount - $selectedQuestions->count(),
-                    'remaining_question_ids' => $selectedQuestions->pluck('id')->toArray()
+                    'remaining_question_ids' => $selectedQuestions->pluck('id')->toArray(),
+                    'filter_method' => 'by_id_and_text'
                 ]);
             } else {
                 \Log::warning('No answered questions found to filter - this should not happen if SC Pro test was completed', [
@@ -405,24 +437,74 @@ class TestTakingController extends Controller
             return $answers;
         }
 
-        $cercTestQuestionIds = $test->selectedQuestions->pluck('id')->toArray();
+        // Get all SC Pro answers with question details for text-based matching
         $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)
-            ->whereIn('question_id', $cercTestQuestionIds)
+            ->with('question:id,question_text')
             ->get();
 
-        $scProQuestionIds = $scProAnswers->pluck('question_id')->toArray();
-        $scProAnswersFormatted = $scProAnswers->map(function ($userAnswer) {
-            return [
-                'question_id' => $userAnswer->question_id,
-                'answer_value' => $userAnswer->answer_value,
-                'final_score' => $userAnswer->final_score,
-                'from_sc_pro' => true
-            ];
-        })->toArray();
+        // Get CERC test questions with their texts
+        $cercTestQuestions = $test->selectedQuestions->keyBy('id');
+        $cercTestQuestionIds = $cercTestQuestions->pluck('id')->toArray();
+        
+        // Create a map of normalized question texts to SC Pro answers
+        // This allows matching by text even when question IDs are different
+        $scProAnswersByText = [];
+        $scProAnswersById = [];
+        
+        foreach ($scProAnswers as $scProAnswer) {
+            if ($scProAnswer->question) {
+                // Store by ID for exact matches
+                $scProAnswersById[$scProAnswer->question_id] = $scProAnswer;
+                
+                // Store by normalized text for text-based matching
+                $normalizedText = $this->normalizeQuestionText($scProAnswer->question->question_text);
+                if (!isset($scProAnswersByText[$normalizedText])) {
+                    $scProAnswersByText[$normalizedText] = $scProAnswer;
+                }
+            }
+        }
 
-        $combinedAnswers = $scProAnswersFormatted;
+        // Build combined answers: start with SC Pro answers that match CERC questions
+        $combinedAnswers = [];
+        $usedScProQuestionIds = [];
+        
+        // First, match SC Pro answers to CERC questions by ID (exact match)
+        foreach ($cercTestQuestionIds as $cercQuestionId) {
+            $cercQuestion = $cercTestQuestions->get($cercQuestionId);
+            if (!$cercQuestion) {
+                continue;
+            }
+            
+            // Check if there's an SC Pro answer with matching question ID
+            if (isset($scProAnswersById[$cercQuestionId])) {
+                $scProAnswer = $scProAnswersById[$cercQuestionId];
+                $combinedAnswers[] = [
+                    'question_id' => $cercQuestionId, // Use CERC question ID
+                    'answer_value' => $scProAnswer->answer_value,
+                    'final_score' => $scProAnswer->final_score,
+                    'from_sc_pro' => true
+                ];
+                $usedScProQuestionIds[] = $cercQuestionId;
+            }
+            // If no ID match, check by question text
+            elseif (!empty($scProAnswersByText)) {
+                $normalizedCercText = $this->normalizeQuestionText($cercQuestion->question_text);
+                if (isset($scProAnswersByText[$normalizedCercText])) {
+                    $scProAnswer = $scProAnswersByText[$normalizedCercText];
+                    $combinedAnswers[] = [
+                        'question_id' => $cercQuestionId, // Use CERC question ID
+                        'answer_value' => $scProAnswer->answer_value,
+                        'final_score' => $scProAnswer->final_score,
+                        'from_sc_pro' => true
+                    ];
+                    $usedScProQuestionIds[] = $cercQuestionId;
+                }
+            }
+        }
+
+        // Add new CERC answers (questions not answered in SC Pro)
         foreach ($answers as $cercAnswer) {
-            if (!in_array($cercAnswer['question_id'], $scProQuestionIds)) {
+            if (!in_array($cercAnswer['question_id'], $usedScProQuestionIds)) {
                 $cercAnswer['from_sc_pro'] = false;
                 $combinedAnswers[] = $cercAnswer;
             }
@@ -647,6 +729,20 @@ class TestTakingController extends Controller
         } else {
             return 'high';
         }
+    }
+
+    /**
+     * Normalize question text for comparison (trim whitespace and convert to lowercase)
+     * Used to match questions with same text but different IDs
+     */
+    private function normalizeQuestionText($questionText)
+    {
+        if (empty($questionText)) {
+            return '';
+        }
+        
+        // Trim whitespace and normalize to lowercase for case-insensitive comparison
+        return mb_strtolower(trim($questionText), 'UTF-8');
     }
 
     /**
