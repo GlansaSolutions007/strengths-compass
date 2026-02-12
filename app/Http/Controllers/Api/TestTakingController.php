@@ -45,6 +45,7 @@ class TestTakingController extends Controller
         }
 
         // For CERC tests, validate that user has completed SC Pro test first and filter questions
+        // Get selected questions (already loaded via eager loading)
         $selectedQuestions = $test->selectedQuestions;
         $scProTest = null;
         $scProTestResult = null;
@@ -101,17 +102,53 @@ class TestTakingController extends Controller
             }
             
             // Filter out questions already answered in SC Pro test
-            $answeredQuestionIds = UserAnswer::whereHas('testResult', function ($query) use ($userId, $scProTest) {
-                $query->where('user_id', $userId)
-                      ->where('test_id', $scProTest->id)
-                      ->where('status', 'completed');
-            })->pluck('question_id')->toArray();
+            // Use the test_result_id directly for better performance and accuracy
+            $answeredQuestionIds = UserAnswer::where('test_result_id', $scProTestResult->id)
+                ->pluck('question_id')
+                ->toArray();
+            
+            // Log for debugging
+            \Log::info('CERC Test Question Filtering', [
+                'cerc_test_id' => $test->id,
+                'cerc_test_title' => $test->title,
+                'sc_pro_test_id' => $scProTest->id,
+                'sc_pro_test_title' => $scProTest->title,
+                'sc_pro_test_result_id' => $scProTestResult->id,
+                'user_id' => $userId,
+                'total_cerc_questions_before_filter' => $selectedQuestions->count(),
+                'answered_question_ids' => $answeredQuestionIds,
+                'answered_count' => count($answeredQuestionIds),
+                'cerc_question_ids_before' => $selectedQuestions->pluck('id')->toArray()
+            ]);
             
             // Filter out already answered questions from CERC test
             if (!empty($answeredQuestionIds)) {
-                $selectedQuestions = $selectedQuestions->reject(function ($question) use ($answeredQuestionIds) {
-                    return in_array($question->id, $answeredQuestionIds);
-                });
+                $originalCount = $selectedQuestions->count();
+                
+                // Use a more explicit filtering approach to ensure it works
+                $filteredQuestions = collect();
+                foreach ($selectedQuestions as $question) {
+                    if (!in_array($question->id, $answeredQuestionIds)) {
+                        $filteredQuestions->push($question);
+                    }
+                }
+                $selectedQuestions = $filteredQuestions;
+                
+                \Log::info('CERC Test Questions After Filtering', [
+                    'cerc_test_id' => $test->id,
+                    'original_count' => $originalCount,
+                    'filtered_count' => $selectedQuestions->count(),
+                    'filtered_out' => $originalCount - $selectedQuestions->count(),
+                    'remaining_question_ids' => $selectedQuestions->pluck('id')->toArray()
+                ]);
+            } else {
+                \Log::warning('No answered questions found to filter - this should not happen if SC Pro test was completed', [
+                    'cerc_test_id' => $test->id,
+                    'sc_pro_test_id' => $scProTest->id,
+                    'sc_pro_test_result_id' => $scProTestResult->id ?? null,
+                    'user_id' => $userId,
+                    'total_questions' => $selectedQuestions->count()
+                ]);
             }
         }
 
