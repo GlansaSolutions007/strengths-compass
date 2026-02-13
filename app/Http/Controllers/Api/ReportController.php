@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\TestResult;
 use App\Models\TestReport;
+use App\Models\Test;
+use App\Models\UserAnswer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\App;
@@ -65,6 +67,13 @@ class ReportController extends Controller
 
         // Calculate SDB scores
         $sdbScores = $this->calculateSDBScores($testResult);
+
+        // For CERC tests, combine SC Pro answers with CERC answers
+        if ($testResult->test && $testResult->test->source === 'CERC') {
+            $combinedAnswers = $this->getCombinedAnswersForReport($testResult);
+            // Replace the answers collection with combined answers
+            $testResult->setRelation('answers', $combinedAnswers);
+        }
 
         // Get test result as array and update with enriched scores
         $testResultData = $testResult->toArray();
@@ -3024,6 +3033,149 @@ or medical concerns, consult a qualified professional. For any queries regarding
         }
 
         return trim($content);
+    }
+
+    /**
+     * Get combined answers for a test result (SC Pro + CERC for CERC tests)
+     * Similar to TestTakingController::getCombinedAnswersForResult but returns UserAnswer models
+     */
+    private function getCombinedAnswersForReport($testResult)
+    {
+        $test = $testResult->test;
+        $userId = $testResult->user_id;
+
+        // For non-CERC tests, just return the test result's answers
+        if ($test->source !== 'CERC') {
+            return $testResult->answers;
+        }
+
+        // For CERC tests, combine SC Pro answers with CERC answers
+        // Find SC Pro test - use explicit mapping if available
+        if ($test->sc_pro_test_id) {
+            $scProTest = Test::where('id', $test->sc_pro_test_id)
+                ->where('source', 'SC Pro')
+                ->where('is_active', true)
+                ->first();
+        } else {
+            $scProTest = Test::where('source', 'SC Pro')
+                ->where('is_active', true)
+                ->where('age_group_id', $test->age_group_id)
+                ->first();
+        }
+
+        // Get CERC test result answers (new CERC questions)
+        $cercAnswers = $testResult->answers->keyBy('question_id');
+        
+        // Get CERC test questions with their texts and relationships
+        $cercTestQuestions = $test->selectedQuestions()
+            ->with('construct.cluster')
+            ->get()
+            ->keyBy('id');
+        $cercTestQuestionIds = $cercTestQuestions->pluck('id')->toArray();
+
+        $combinedAnswers = collect();
+
+        // If SC Pro test exists, get its answers and match them to CERC questions
+        if ($scProTest) {
+            $scProTestResult = TestResult::where('user_id', $userId)
+                ->where('test_id', $scProTest->id)
+                ->where('status', 'completed')
+                ->latest()
+                ->first();
+
+            if ($scProTestResult) {
+                // Get all SC Pro answers with question details for text-based matching
+                $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)
+                    ->with('question:id,question_text,construct_id,category')
+                    ->get();
+
+                // Create maps for matching
+                $scProAnswersById = [];
+                $scProAnswersByText = [];
+                
+                foreach ($scProAnswers as $scProAnswer) {
+                    if ($scProAnswer->question) {
+                        // Store by ID for exact matches
+                        $scProAnswersById[$scProAnswer->question_id] = $scProAnswer;
+                        
+                        // Store by normalized text for text-based matching
+                        $normalizedText = $this->normalizeQuestionText($scProAnswer->question->question_text);
+                        if (!isset($scProAnswersByText[$normalizedText])) {
+                            $scProAnswersByText[$normalizedText] = $scProAnswer;
+                        }
+                    }
+                }
+
+                // Match SC Pro answers to CERC questions
+                foreach ($cercTestQuestionIds as $cercQuestionId) {
+                    $cercQuestion = $cercTestQuestions->get($cercQuestionId);
+                    if (!$cercQuestion) {
+                        continue;
+                    }
+
+                    $matchedAnswer = null;
+
+                    // Check if there's a CERC answer for this question (newly answered)
+                    if ($cercAnswers->has($cercQuestionId)) {
+                        $matchedAnswer = $cercAnswers->get($cercQuestionId);
+                        // Ensure question is loaded with relationships
+                        if (!$matchedAnswer->relationLoaded('question') || !$matchedAnswer->question) {
+                            $matchedAnswer->load('question.construct.cluster');
+                        }
+                        $combinedAnswers->push($matchedAnswer);
+                    }
+                    // Check if there's an SC Pro answer with matching question ID
+                    elseif (isset($scProAnswersById[$cercQuestionId])) {
+                        $scProAnswer = $scProAnswersById[$cercQuestionId];
+                        // Create a new UserAnswer instance with SC Pro answer data but CERC question
+                        $matchedAnswer = new UserAnswer();
+                        $matchedAnswer->id = $scProAnswer->id;
+                        $matchedAnswer->test_result_id = $scProAnswer->test_result_id;
+                        $matchedAnswer->question_id = $cercQuestionId; // Use CERC question ID
+                        $matchedAnswer->answer_value = $scProAnswer->answer_value;
+                        $matchedAnswer->final_score = $scProAnswer->final_score;
+                        $matchedAnswer->setRelation('question', $cercQuestion);
+                        $combinedAnswers->push($matchedAnswer);
+                    }
+                    // If no ID match, check by question text
+                    elseif (!empty($scProAnswersByText)) {
+                        $normalizedCercText = $this->normalizeQuestionText($cercQuestion->question_text);
+                        if (isset($scProAnswersByText[$normalizedCercText])) {
+                            $scProAnswer = $scProAnswersByText[$normalizedCercText];
+                            // Create a new UserAnswer instance with SC Pro answer data but CERC question
+                            $matchedAnswer = new UserAnswer();
+                            $matchedAnswer->id = $scProAnswer->id;
+                            $matchedAnswer->test_result_id = $scProAnswer->test_result_id;
+                            $matchedAnswer->question_id = $cercQuestionId; // Use CERC question ID
+                            $matchedAnswer->answer_value = $scProAnswer->answer_value;
+                            $matchedAnswer->final_score = $scProAnswer->final_score;
+                            $matchedAnswer->setRelation('question', $cercQuestion);
+                            $combinedAnswers->push($matchedAnswer);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no SC Pro test or answers, just return CERC answers
+        if ($combinedAnswers->isEmpty() && !$cercAnswers->isEmpty()) {
+            return $cercAnswers->map(function ($answer) {
+                $answer->load('question.construct.cluster');
+                return $answer;
+            });
+        }
+
+        return $combinedAnswers;
+    }
+
+    /**
+     * Normalize question text for comparison (trim, lowercase, remove non-alphanumeric)
+     */
+    private function normalizeQuestionText(string $text): string
+    {
+        $normalized = strtolower(trim($text));
+        $normalized = preg_replace('/[^a-z0-9]/', '', $normalized);
+        return $normalized;
     }
 }
 
