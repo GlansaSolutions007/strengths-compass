@@ -143,6 +143,9 @@ class TestController extends Controller
             'data' => $request->all()
         ]);
 
+        // Normalize question_ids so frontend can send array [738,739,740] or string "738,739,740" (e.g. with FormData + file)
+        $request->merge(['question_ids' => $this->normalizeQuestionIdsInput($request->input('question_ids'))]);
+
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -168,6 +171,8 @@ class TestController extends Controller
             ],
             'cluster_ids' => 'sometimes|array',
             'cluster_ids.*' => 'exists:clusters,id',
+            'construct_ids' => 'sometimes|array',
+            'construct_ids.*' => 'exists:constructs,id',
             'question_ids' => 'sometimes|array',
             'question_ids.*' => 'exists:questions,id',
             'clusters' => 'sometimes|array',
@@ -217,8 +222,16 @@ class TestController extends Controller
             $importStats = null;
             $importErrors = null;
 
-            // Handle Excel file upload for questions (priority)
-            if ($request->hasFile('questions_file')) {
+            // CERC / questions: support both selected question_ids AND Excel file (selected first, then Excel)
+            $hasFile = $request->hasFile('questions_file');
+            $hasQuestionIds = $request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0;
+
+            if ($hasQuestionIds) {
+                // Attach selected questions first (order_no 1, 2, 3, ...)
+                $this->attachSelectedQuestions($test, $request->question_ids);
+            }
+
+            if ($hasFile) {
                 try {
                     $file = $request->file('questions_file');
                     $ageGroupId = $test->age_group_id;
@@ -229,19 +242,18 @@ class TestController extends Controller
                         'file_name' => $file->getClientOriginalName(),
                         'file_size' => $file->getSize(),
                         'mime_type' => $file->getMimeType(),
+                        'has_selected_questions' => $hasQuestionIds,
                     ]);
 
-                    // Create import instance with test source
-                    $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro');
+                    // Create import instance with test source and SC Pro test id (for CERC duplicate check)
+                    $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro', $test->sc_pro_test_id ?? null);
 
-                    // Import the file
                     Excel::import($import, $file);
 
-                    // Get import statistics
                     $stats = $import->getStats();
                     $createdQuestions = $stats['created_questions'] ?? [];
                     $errors = $stats['errors'] ?? [];
-                    
+
                     \Log::info('Excel import completed', [
                         'test_id' => $test->id,
                         'success_count' => $stats['success'] ?? 0,
@@ -249,12 +261,10 @@ class TestController extends Controller
                         'questions_created' => count($createdQuestions),
                         'errors_count' => count($errors),
                     ]);
-                    
-                    // Store for response
+
                     $importStats = $stats;
                     $importErrors = $errors;
 
-                    // Collect unique cluster IDs from imported questions
                     $clusterIds = [];
                     foreach ($createdQuestions as $item) {
                         $clusterId = $item['cluster_id'];
@@ -263,7 +273,6 @@ class TestController extends Controller
                         }
                     }
 
-                    // Attach clusters to the test if not already attached
                     if (!empty($clusterIds)) {
                         foreach ($clusterIds as $clusterId) {
                             if (!$test->clusters()->where('clusters.id', $clusterId)->exists()) {
@@ -276,39 +285,32 @@ class TestController extends Controller
                         }
                     }
 
-                    // Attach created questions to the test
+                    // Attach Excel questions with order_no after any selected questions
                     if (!empty($createdQuestions)) {
-                        $testQuestions = [];
-                        $orderNo = 1;
+                        $maxOrderNo = (int) DB::table('test_question')
+                            ->where('test_id', $test->id)
+                            ->max('order_no');
+                        $orderNo = $maxOrderNo + 1;
 
                         foreach ($createdQuestions as $item) {
                             $questionId = $item['question_id'];
                             $clusterId = $item['cluster_id'];
-
-                            // Check if question already exists in test
-                            $exists = DB::table('test_question')
-                                ->where('test_id', $test->id)
-                                ->where('question_id', $questionId)
-                                ->exists();
-
-                            if (!$exists) {
-                                $testQuestions[] = [
+                            DB::table('test_question')->updateOrInsert(
+                                [
                                     'test_id' => $test->id,
                                     'question_id' => $questionId,
+                                ],
+                                [
                                     'cluster_id' => $clusterId,
-                                    'order_no' => $orderNo++,
+                                    'order_no' => $orderNo,
                                     'created_at' => now(),
                                     'updated_at' => now(),
-                                ];
-                            }
-                        }
-
-                        if (!empty($testQuestions)) {
-                            DB::table('test_question')->insert($testQuestions);
+                                ]
+                            );
+                            $orderNo++;
                         }
                     }
 
-                    // Log import results
                     \Log::info('Test questions import completed', [
                         'test_id' => $test->id,
                         'success_count' => $stats['success'] ?? 0,
@@ -323,13 +325,8 @@ class TestController extends Controller
                         'error' => $e->getMessage(),
                         'trace' => $e->getTraceAsString(),
                     ]);
-                    // Continue with test creation even if import fails
                 }
-            }
-            // Handle question_ids if provided (manual selection from frontend)
-            elseif ($request->has('question_ids') && is_array($request->question_ids) && count($request->question_ids) > 0) {
-                $this->attachSelectedQuestions($test, $request->question_ids);
-            } else {
+            } elseif (!$hasQuestionIds) {
                 // Auto-generate questions if clusters are attached and no question_ids provided
                 if ($test->clusters->count() > 0) {
                     $this->generateQuestionSelectionInternal($test);
@@ -1008,6 +1005,50 @@ class TestController extends Controller
     public function regenerateQuestionSelection(string $id)
     {
         return $this->generateQuestionSelection($id);
+    }
+
+    /**
+     * Normalize question_ids from request: accept array [738,739,740] or string "738,739,740" / "[738,739,740]"
+     * so that FormData + file upload still sends selected questions correctly.
+     *
+     * @param mixed $input
+     * @return array<int>
+     */
+    private function normalizeQuestionIdsInput($input): array
+    {
+        if ($input === null || $input === '') {
+            return [];
+        }
+        if (is_array($input)) {
+            $ids = [];
+            foreach ($input as $id) {
+                $id = is_numeric($id) ? (int) $id : (int) trim((string) $id);
+                if ($id > 0) {
+                    $ids[] = $id;
+                }
+            }
+            return array_values(array_unique($ids));
+        }
+        $raw = trim((string) $input);
+        if ($raw === '') {
+            return [];
+        }
+        // JSON array string e.g. "[738,739,740]"
+        if (strpos($raw, '[') === 0) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $this->normalizeQuestionIdsInput($decoded);
+            }
+        }
+        // Comma-separated e.g. "738,739,740"
+        $ids = [];
+        foreach (explode(',', $raw) as $id) {
+            $id = (int) trim($id);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        return array_values(array_unique($ids));
     }
 
     private function attachSelectedQuestions(Test $test, array $questionIds)
