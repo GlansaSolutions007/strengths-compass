@@ -484,8 +484,8 @@ class TestController extends Controller
                 $file = $request->file('questions_file');
                 $ageGroupId = $test->age_group_id;
 
-                // Create import instance with test source
-                $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro');
+                // Create import instance with test source and SC Pro test id (for CERC duplicate check)
+                $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro', $test->sc_pro_test_id ?? null);
 
                 // Import the file
                 Excel::import($import, $file);

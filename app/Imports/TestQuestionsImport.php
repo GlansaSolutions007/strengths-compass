@@ -5,6 +5,7 @@ namespace App\Imports;
 use App\Models\QuestionsModel as Question;
 use App\Models\Cluster;
 use App\Models\Construct;
+use App\Models\Test;
 use Maatwebsite\Excel\Imports\HeadingRowFormatter;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
@@ -24,16 +25,64 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
     protected $testId;
     protected $ageGroupId;
     protected $testSource;
+    protected $scProTestId;
+    protected $scProQuestionTexts;
     protected $errors = [];
     protected $successCount = 0;
     protected $failureCount = 0;
+    protected $skippedCount = 0;
     protected $createdQuestions = [];
 
-    public function __construct($testId = null, $ageGroupId = null, $testSource = null)
+    public function __construct($testId = null, $ageGroupId = null, $testSource = null, $scProTestId = null)
     {
         $this->testId = $testId;
         $this->ageGroupId = $ageGroupId;
         $this->testSource = $testSource ?? 'SC Pro'; // Default to SC Pro
+        $this->scProTestId = $scProTestId;
+        
+        // For CERC tests, pre-load SC Pro question texts for filtering
+        if ($this->testSource === 'CERC' && $this->scProTestId) {
+            $this->loadScProQuestionTexts();
+        }
+    }
+    
+    /**
+     * Load question texts from SC Pro test for filtering duplicates
+     */
+    private function loadScProQuestionTexts()
+    {
+        $scProTest = Test::find($this->scProTestId);
+        if (!$scProTest) {
+            \Log::warning('SC Pro test not found for CERC filtering', [
+                'sc_pro_test_id' => $this->scProTestId
+            ]);
+            $this->scProQuestionTexts = [];
+            return;
+        }
+        
+        $scProQuestions = $scProTest->selectedQuestions()->get();
+        $this->scProQuestionTexts = [];
+        
+        foreach ($scProQuestions as $question) {
+            $normalizedText = $this->normalizeQuestionText($question->question_text);
+            $this->scProQuestionTexts[$normalizedText] = true;
+        }
+        
+        \Log::info('Loaded SC Pro question texts for CERC filtering', [
+            'sc_pro_test_id' => $this->scProTestId,
+            'question_count' => count($this->scProQuestionTexts)
+        ]);
+    }
+    
+    /**
+     * Normalize question text for comparison (trim, lowercase, remove extra spaces)
+     */
+    private function normalizeQuestionText(string $text): string
+    {
+        $normalized = trim($text);
+        $normalized = strtolower($normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized); // Replace multiple spaces with single space
+        return $normalized;
     }
 
     /**
@@ -183,6 +232,24 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
             return null;
         }
 
+        // For CERC tests, filter out questions that already exist in SC Pro test
+        // For SC Pro tests, upload all questions without filtering
+        if ($this->testSource === 'CERC' && !empty($this->scProQuestionTexts)) {
+            $normalizedQuestionText = $this->normalizeQuestionText($questionText);
+            
+            // Skip if question text already exists in SC Pro test
+            if (isset($this->scProQuestionTexts[$normalizedQuestionText])) {
+                $this->skippedCount++;
+                \Log::debug('Skipping CERC question - already exists in SC Pro test', [
+                    'question_text' => $questionText,
+                    'normalized_text' => $normalizedQuestionText,
+                    'cluster' => $clusterName,
+                    'construct' => $constructName
+                ]);
+                return null; // Skip this question
+            }
+        }
+
         // Create and save question immediately
         // Source can come from Excel row, or default to test source
         $source = $this->testSource;
@@ -320,6 +387,7 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
         return [
             'success' => $this->successCount,
             'failures' => $this->failureCount,
+            'skipped' => $this->skippedCount,
             'errors' => $this->errors,
             'created_questions' => $this->createdQuestions,
         ];
