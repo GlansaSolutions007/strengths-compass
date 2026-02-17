@@ -826,12 +826,19 @@ class TestController extends Controller
             $rCount = $pivot->r_count ?? null;
             $sdbCount = $pivot->sdb_count ?? null;
 
-            // Get all active questions from this cluster
-            // For CERC tests, include questions from both SC Pro and CERC sources
-            // For SC Pro tests, only include SC Pro questions
-            $availableQuestions = Question::whereHas('construct', function ($query) use ($cluster) {
-                $query->where('cluster_id', $cluster->id);
-            })->where('is_active', true);
+            // Get all active questions in this cluster for this test (test_cluster_construct or legacy cluster_id)
+            $constructIdsInCluster = DB::table('test_cluster_construct')
+                ->where('test_id', $test->id)
+                ->where('cluster_id', $cluster->id)
+                ->pluck('construct_id')
+                ->all();
+            if (!empty($constructIdsInCluster)) {
+                $availableQuestions = Question::whereIn('construct_id', $constructIdsInCluster)->where('is_active', true);
+            } else {
+                $availableQuestions = Question::whereHas('construct', function ($query) use ($cluster) {
+                    $query->where('cluster_id', $cluster->id);
+                })->where('is_active', true);
+            }
             
             // If test source is CERC, include questions from both sources
             // If test source is SC Pro, only include SC Pro questions
@@ -1060,37 +1067,38 @@ class TestController extends Controller
             return;
         }
 
-        // Get questions with their construct and cluster information
         $questions = Question::whereIn('id', $questionIds)
             ->with('construct.cluster')
             ->get();
 
-        // Prepare data for insertion
+        // Test-specific: construct_id -> cluster_id for this test (from test_cluster_construct)
+        $constructToCluster = DB::table('test_cluster_construct')
+            ->where('test_id', $test->id)
+            ->get()
+            ->keyBy('construct_id')
+            ->map(fn ($row) => $row->cluster_id)
+            ->all();
+
         $testQuestions = [];
         $orderNo = 1;
 
         foreach ($questionIds as $questionId) {
             $question = $questions->firstWhere('id', $questionId);
-            
             if (!$question) {
                 continue;
             }
 
-            // Get cluster_id from question's construct
-            $clusterId = null;
-            if ($question->construct && $question->construct->cluster) {
+            $clusterId = $constructToCluster[$question->construct_id] ?? null;
+            if (!$clusterId && $question->construct && $question->construct->cluster) {
                 $clusterId = $question->construct->cluster->id;
-            } else {
-                // Fallback: try to find cluster from test's clusters
+            }
+            if (!$clusterId) {
                 $test->load('clusters');
-                if ($test->clusters->count() > 0) {
-                    // Find cluster that contains this question's construct
-                    foreach ($test->clusters as $cluster) {
-                        $cluster->load('constructs');
-                        if ($cluster->constructs->contains('id', $question->construct_id)) {
-                            $clusterId = $cluster->id;
-                            break;
-                        }
+                foreach ($test->clusters as $cluster) {
+                    $cluster->load('constructs');
+                    if ($cluster->constructs->contains('id', $question->construct_id)) {
+                        $clusterId = $cluster->id;
+                        break;
                     }
                 }
             }
@@ -1105,7 +1113,6 @@ class TestController extends Controller
             ];
         }
 
-        // Insert in batches for better performance
         if (!empty($testQuestions)) {
             DB::table('test_question')->insert($testQuestions);
         }

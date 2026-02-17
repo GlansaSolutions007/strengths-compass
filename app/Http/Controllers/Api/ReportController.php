@@ -7,6 +7,8 @@ use App\Models\TestResult;
 use App\Models\TestReport;
 use App\Models\Test;
 use App\Models\UserAnswer;
+use App\Models\Construct;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\App;
@@ -1192,7 +1194,8 @@ class ReportController extends Controller
     }
 
     /**
-     * Build descriptive cluster list with behaviours and constructs
+     * Build descriptive cluster list with behaviours and constructs.
+     * Uses test_cluster_construct so constructs per cluster are test-specific.
      */
     private function buildClusterDetails(TestResult $testResult): array
     {
@@ -1200,13 +1203,24 @@ class ReportController extends Controller
             return [];
         }
 
-        $clusters = $testResult->test->clusters ?? collect();
+        $test = $testResult->test;
+        $clusters = $test->clusters ?? collect();
 
         if ($clusters->isEmpty()) {
             return [];
         }
 
-        return $clusters->map(function ($cluster) {
+        $pivot = DB::table('test_cluster_construct')
+            ->where('test_id', $test->id)
+            ->get()
+            ->groupBy('cluster_id');
+
+        return $clusters->map(function ($cluster) use ($pivot) {
+            $constructIds = ($pivot->get($cluster->id) ?? collect())->pluck('construct_id')->unique()->all();
+            $constructs = !empty($constructIds)
+                ? Construct::whereIn('id', $constructIds)->get()
+                : $cluster->constructs ?? collect(); // legacy: cluster->constructs
+
             return [
                 'id' => $cluster->id,
                 'name' => $cluster->name,
@@ -1214,18 +1228,16 @@ class ReportController extends Controller
                 'high_behaviour' => $cluster->high_behaviour ?? $cluster->high_behavior ?? null,
                 'medium_behaviour' => $cluster->medium_behaviour ?? $cluster->medium_behavior ?? null,
                 'low_behaviour' => $cluster->low_behaviour ?? $cluster->low_behavior ?? null,
-                'constructs' => $cluster->constructs
-                    ? $cluster->constructs->map(function ($construct) {
-                        return [
-                            'id' => $construct->id,
-                            'name' => $construct->name,
-                            'description' => $construct->description ?? $construct->definition,
-                            'high_behavior' => $construct->high_behavior,
-                            'medium_behavior' => $construct->medium_behavior,
-                            'low_behavior' => $construct->low_behavior,
-                        ];
-                    })->values()->all()
-                    : [],
+                'constructs' => $constructs->map(function ($construct) {
+                    return [
+                        'id' => $construct->id,
+                        'name' => $construct->name,
+                        'description' => $construct->description ?? $construct->definition,
+                        'high_behavior' => $construct->high_behavior,
+                        'medium_behavior' => $construct->medium_behavior,
+                        'low_behavior' => $construct->low_behavior,
+                    ];
+                })->values()->all(),
             ];
         })->values()->all();
     }
@@ -1349,20 +1361,45 @@ class ReportController extends Controller
             return $constructScores;
         }
 
-        // Build a lookup map of construct details by name
+        // Build a lookup map of construct details by name (test-specific cluster via test_cluster_construct)
         $constructDetailsMap = [];
-        $clusters = $testResult->test->clusters ?? collect();
-        
-        foreach ($clusters as $cluster) {
-            $constructs = $cluster->constructs ?? collect();
-            foreach ($constructs as $construct) {
-                $constructDetailsMap[$construct->name] = [
-                    'description' => $construct->description ?? $construct->definition,
-                    'high_behavior' => $construct->high_behavior,
-                    'medium_behavior' => $construct->medium_behavior,
-                    'low_behavior' => $construct->low_behavior,
-                    'cluster_name' => $cluster->name,
-                ];
+        $test = $testResult->test;
+        $pivotRows = DB::table('test_cluster_construct')
+            ->where('test_id', $test->id)
+            ->get();
+
+        if ($pivotRows->isNotEmpty()) {
+            $constructIds = $pivotRows->pluck('construct_id')->unique()->all();
+            $clusterIds = $pivotRows->pluck('cluster_id')->unique()->all();
+            $constructs = Construct::whereIn('id', $constructIds)->get()->keyBy('id');
+            $clusters = $test->clusters->keyBy('id');
+            foreach ($pivotRows as $row) {
+                $construct = $constructs->get($row->construct_id);
+                $cluster = $clusters->get($row->cluster_id);
+                if ($construct && $cluster) {
+                    $constructDetailsMap[$construct->name] = [
+                        'description' => $construct->description ?? $construct->definition,
+                        'high_behavior' => $construct->high_behavior,
+                        'medium_behavior' => $construct->medium_behavior,
+                        'low_behavior' => $construct->low_behavior,
+                        'cluster_name' => $cluster->name,
+                    ];
+                }
+            }
+        } else {
+            // Legacy: from test->clusters->constructs
+            $clusters = $test->clusters ?? collect();
+            foreach ($clusters as $cluster) {
+                $constructs = $cluster->constructs ?? collect();
+                foreach ($constructs as $construct) {
+                    $constructDetailsMap[$construct->name] = [
+                        'description' => $construct->description ?? $construct->definition,
+                        'high_behavior' => $construct->high_behavior,
+                        'medium_behavior' => $construct->medium_behavior,
+                        'low_behavior' => $construct->low_behavior,
+                        'cluster_name' => $cluster->name,
+                    ];
+                }
             }
         }
 

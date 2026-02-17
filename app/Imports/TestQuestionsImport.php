@@ -6,6 +6,7 @@ use App\Models\QuestionsModel as Question;
 use App\Models\Cluster;
 use App\Models\Construct;
 use App\Models\Test;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Imports\HeadingRowFormatter;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
@@ -211,13 +212,13 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
             return null;
         }
 
-        // Find construct by name within the cluster (case-insensitive, flexible matching)
-        $construct = $this->findConstructByName($constructName, $cluster->id);
+        // Find construct by name (independent of cluster; cluster-construct is per-test from Excel row)
+        $construct = $this->findConstructByName($constructName, $cluster->age_group_id ?? $this->ageGroupId);
         if (!$construct) {
             $this->failureCount++;
             $this->errors[] = [
                 'row' => $row,
-                'error' => "Construct '{$constructName}' not found in cluster '{$clusterName}'"
+                'error' => "Construct '{$constructName}' not found"
             ];
             return null;
         }
@@ -270,6 +271,17 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
             'source' => $source,
         ]);
 
+        // Record test-specific cluster-construct assignment (for this test, this construct is in this cluster)
+        if ($this->testId) {
+            DB::table('test_cluster_construct')->insertOrIgnore([
+                'test_id' => $this->testId,
+                'cluster_id' => $cluster->id,
+                'construct_id' => $construct->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
         $this->successCount++;
         $this->createdQuestions[] = [
             'question_id' => $question->id,
@@ -301,22 +313,24 @@ class TestQuestionsImport implements ToModel, WithHeadingRow, SkipsOnFailure
     }
 
     /**
-     * Find construct by name within a cluster (flexible matching)
+     * Find construct by name (independent of cluster). Optionally filter by age_group_id.
      */
-    private function findConstructByName(string $name, int $clusterId): ?Construct
+    private function findConstructByName(string $name, $ageGroupId = null): ?Construct
     {
         $normalizedInput = $this->normalizeNameForComparison($name);
-        
-        $query = Construct::where('cluster_id', $clusterId)
-            ->where('is_active', true)
+
+        $query = Construct::where('is_active', true)
             ->where('is_deleted', false);
-        
-        if ($this->ageGroupId) {
-            $query->where('age_group_id', $this->ageGroupId);
+
+        $ageFilter = $ageGroupId ?? $this->ageGroupId;
+        if ($ageFilter) {
+            $query->where(function ($q) use ($ageFilter) {
+                $q->where('age_group_id', $ageFilter)->orWhereNull('age_group_id');
+            });
         }
-        
+
         $constructs = $query->get();
-        
+
         return $constructs->first(function ($construct) use ($normalizedInput) {
             return $this->normalizeNameForComparison($construct->name) === $normalizedInput;
         });

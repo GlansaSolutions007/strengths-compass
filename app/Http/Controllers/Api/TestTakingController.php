@@ -654,13 +654,18 @@ class TestTakingController extends Controller
     }
 
     /**
-     * Calculate cluster scores (both totals and averages)
+     * Calculate cluster scores (both totals and averages).
+     * Uses test_question.cluster_id (test-specific) so same construct can be in different clusters per test.
      */
 private function calculateClusterScores($userAnswers, $test)
     {
         $clusterScores = [];
         $clusterTotals = [];
         $clusterCounts = [];
+
+        // Map question_id -> cluster_id for this test (from test_question pivot)
+        $test->load('selectedQuestions');
+        $questionIdToClusterId = $test->selectedQuestions->pluck('pivot.cluster_id', 'id')->filter()->all();
 
         foreach ($userAnswers as $answer) {
             // Skip SDB questions - they are excluded from cluster calculations
@@ -669,13 +674,16 @@ private function calculateClusterScores($userAnswers, $test)
                 continue;
             }
 
-            $question = QuestionsModel::with('construct.cluster')->find($answer['question_id']);
-            if (!$question || !$question->construct || !$question->construct->cluster) {
-                continue;
-            }
+            $clusterId = $questionIdToClusterId[$answer['question_id']] ?? null;
 
-            $clusterName = $question->construct->cluster->name;
-            $clusterId = $question->construct->cluster->id;
+            // Fallback: get cluster from question->construct->cluster (legacy when pivot cluster_id was not set)
+            if (!$clusterId) {
+                $question = QuestionsModel::with('construct.cluster')->find($answer['question_id']);
+                if (!$question || !$question->construct || !$question->construct->cluster) {
+                    continue;
+                }
+                $clusterId = $question->construct->cluster->id;
+            }
 
             if (!isset($clusterTotals[$clusterId])) {
                 $clusterTotals[$clusterId] = 0;

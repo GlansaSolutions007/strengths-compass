@@ -35,10 +35,28 @@ class Test extends Model
     }
 
     /**
-     * Get all constructs through clusters
+     * Get constructs assigned to this test (via test_cluster_construct).
+     * Same construct can be in different clusters for different tests.
+     */
+    public function constructs()
+    {
+        return $this->belongsToMany(Construct::class, 'test_cluster_construct')
+            ->withPivot('cluster_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * Get all constructs for this test (test-specific cluster-construct assignment).
+     * Falls back to legacy cluster->constructs for tests with no test_cluster_construct rows.
      */
     public function getConstructsAttribute()
     {
+        $viaPivot = $this->constructs()->get();
+        if ($viaPivot->isNotEmpty()) {
+            return $viaPivot;
+        }
+
+        // Legacy: constructs through clusters (when cluster_id was set on construct)
         return Construct::whereHas('cluster', function ($query) {
             $query->whereHas('tests', function ($q) {
                 $q->where('tests.id', $this->id);
@@ -47,10 +65,32 @@ class Test extends Model
     }
 
     /**
-     * Get all available questions through clusters and constructs (not selected, just available)
+     * Get constructs in a specific cluster for this test.
+     */
+    public function getConstructsForCluster(int $clusterId)
+    {
+        return $this->constructs()->wherePivot('cluster_id', $clusterId)->get();
+    }
+
+    /**
+     * Get all available questions (constructs assigned to this test, not yet selected).
      */
     public function getAvailableQuestionsAttribute()
     {
+        $constructIds = \Illuminate\Support\Facades\DB::table('test_cluster_construct')
+            ->where('test_id', $this->id)
+            ->pluck('construct_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        if (!empty($constructIds)) {
+            return \App\Models\QuestionsModel::whereIn('construct_id', $constructIds)
+                ->where('is_active', true)
+                ->get();
+        }
+
+        // Legacy: through cluster->constructs
         return \App\Models\QuestionsModel::whereHas('construct', function ($query) {
             $query->whereHas('cluster', function ($q) {
                 $q->whereHas('tests', function ($testQuery) {

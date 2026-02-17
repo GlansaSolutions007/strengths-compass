@@ -27,45 +27,44 @@ class TestQuestionsTemplateExport implements FromCollection, WithHeadings, Shoul
 
     /**
      * @return Collection
+     * Cluster and construct are independent: template lists all constructs for age group.
+     * User assigns cluster per row in the Excel (cluster-construct is per-test when importing).
      */
     public function collection()
     {
-        $query = Cluster::with(['constructs', 'ageGroup'])
-            ->where('is_active', true)
+        $constructQuery = Construct::where('is_active', true)
             ->where('is_deleted', false);
 
         if ($this->ageGroupId) {
-            $query->where('age_group_id', $this->ageGroupId);
+            $constructQuery->where(function ($q) {
+                $q->where('age_group_id', $this->ageGroupId)->orWhereNull('age_group_id');
+            });
         }
 
-        $clusters = $query->get();
+        $constructs = $constructQuery->get();
         $rows = [];
 
-        // Create rows with cluster and construct names prefilled
-        // Each row represents a potential question entry
-        foreach ($clusters as $cluster) {
-            // Access constructs as a relationship property and filter
-            $constructs = $cluster->constructs->filter(function ($construct) {
-                return $construct->is_active && !$construct->is_deleted;
-            });
+        foreach ($constructs as $construct) {
+            $rows[] = [
+                'cluster' => '', // User fills: cluster for this test (from Cluster column)
+                'construct' => $construct->name,
+                'question' => '',
+                'category' => '',
+            ];
+        }
 
-            // If cluster has constructs, create one row per construct
-            if ($constructs->count() > 0) {
-                foreach ($constructs as $construct) {
-                    $rows[] = [
-                        'cluster' => $cluster->name,
-                        'construct' => $construct->name,
-                        'question' => '', // Empty for admin to fill
-                        'category' => '', // Empty for admin to fill (P, R, or SDB)
-                    ];
-                }
-            } else {
-                // If cluster has no constructs, still create a row with cluster name
+        // If no constructs, add a few empty rows so template is still usable
+        if (empty($rows)) {
+            $clusterQuery = Cluster::where('is_active', true)->where('is_deleted', false);
+            if ($this->ageGroupId) {
+                $clusterQuery->where('age_group_id', $this->ageGroupId);
+            }
+            foreach ($clusterQuery->get() as $cluster) {
                 $rows[] = [
                     'cluster' => $cluster->name,
-                    'construct' => '', // Empty if no constructs exist
-                    'question' => '', // Empty for admin to fill
-                    'category' => '', // Empty for admin to fill (P, R, or SDB)
+                    'construct' => '',
+                    'question' => '',
+                    'category' => '',
                 ];
             }
         }

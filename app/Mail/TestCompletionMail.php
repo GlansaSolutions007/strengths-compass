@@ -5,6 +5,8 @@ namespace App\Mail;
 use App\Models\User;
 use App\Models\Test;
 use App\Models\TestResult;
+use App\Models\Construct;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailable;
@@ -209,7 +211,7 @@ class TestCompletionMail extends Mailable
     }
 
     /**
-     * Build cluster details
+     * Build cluster details (test-specific constructs via test_cluster_construct)
      */
     private function buildClusterDetails(TestResult $testResult): array
     {
@@ -217,26 +219,35 @@ class TestCompletionMail extends Mailable
             return [];
         }
 
-        $clusters = $testResult->test->clusters ?? collect();
+        $test = $testResult->test;
+        $clusters = $test->clusters ?? collect();
 
         if ($clusters->isEmpty()) {
             return [];
         }
 
-        return $clusters->map(function ($cluster) {
+        $pivot = DB::table('test_cluster_construct')
+            ->where('test_id', $test->id)
+            ->get()
+            ->groupBy('cluster_id');
+
+        return $clusters->map(function ($cluster) use ($pivot) {
+            $constructIds = ($pivot->get($cluster->id) ?? collect())->pluck('construct_id')->unique()->all();
+            $constructs = !empty($constructIds)
+                ? Construct::whereIn('id', $constructIds)->get()
+                : $cluster->constructs ?? collect();
+
             return [
                 'id' => $cluster->id,
                 'name' => $cluster->name,
                 'description' => $cluster->description,
-                'constructs' => $cluster->constructs
-                    ? $cluster->constructs->map(function ($construct) {
-                        return [
-                            'id' => $construct->id,
-                            'name' => $construct->name,
-                            'description' => $construct->description ?? $construct->definition,
-                        ];
-                    })->values()->all()
-                    : [],
+                'constructs' => $constructs->map(function ($construct) {
+                    return [
+                        'id' => $construct->id,
+                        'name' => $construct->name,
+                        'description' => $construct->description ?? $construct->definition,
+                    ];
+                })->values()->all(),
             ];
         })->values()->all();
     }
