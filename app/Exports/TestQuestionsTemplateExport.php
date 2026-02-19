@@ -46,14 +46,14 @@ class TestQuestionsTemplateExport implements FromCollection, WithHeadings, Shoul
 
         foreach ($constructs as $construct) {
             $rows[] = [
-                'cluster' => '', // User fills: cluster for this test (from Cluster column)
+                'cluster' => '', // User fills: cluster for this test
                 'construct' => $construct->name,
                 'question' => '',
                 'category' => '',
+                'question_id' => '', // Optional: for CERC, paste existing question ID to reuse (no duplicate)
             ];
         }
 
-        // If no constructs, add a few empty rows so template is still usable
         if (empty($rows)) {
             $clusterQuery = Cluster::where('is_active', true)->where('is_deleted', false);
             if ($this->ageGroupId) {
@@ -65,6 +65,7 @@ class TestQuestionsTemplateExport implements FromCollection, WithHeadings, Shoul
                     'construct' => '',
                     'question' => '',
                     'category' => '',
+                    'question_id' => '',
                 ];
             }
         }
@@ -82,6 +83,7 @@ class TestQuestionsTemplateExport implements FromCollection, WithHeadings, Shoul
             'Construct',
             'Question',
             'Category',
+            'Question ID', // Optional: for CERC, use existing question ID to reuse (prevents duplicate)
         ];
     }
 
@@ -95,7 +97,7 @@ class TestQuestionsTemplateExport implements FromCollection, WithHeadings, Shoul
                 $sheet = $event->sheet->getDelegate();
                 
                 // Make header row bold
-                $sheet->getStyle('A1:D1')->getFont()->setBold(true);
+                $sheet->getStyle('A1:E1')->getFont()->setBold(true);
                 
                 // Freeze first row
                 $sheet->freezePane('A2');
@@ -126,8 +128,8 @@ class TestQuestionsTemplateExport implements FromCollection, WithHeadings, Shoul
 
                 // Add age group info as a note if age group is specified
                 if ($this->ageGroup) {
-                    $sheet->setCellValue('F1', 'Age Group: ' . $this->ageGroup->name);
-                    $sheet->getStyle('F1')->getFont()->setBold(true)->setItalic(true);
+                    $sheet->setCellValue('G1', 'Age Group: ' . $this->ageGroup->name);
+                    $sheet->getStyle('G1')->getFont()->setBold(true)->setItalic(true);
                 }
             },
         ];

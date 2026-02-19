@@ -2441,6 +2441,7 @@ private function calculateClusterScores($userAnswers, $test)
 
     /**
      * Resolve percentage score for a cluster/construct entry.
+     * Uses stored percentage when present so Excel matches result and report (exact value, 2 decimals).
      */
     protected function extractPercentageScore(array $entry): ?float
     {
@@ -2450,42 +2451,36 @@ private function calculateClusterScores($userAnswers, $test)
             $percentage = $this->calculatePercentageFromMean($entry['average']);
         }
 
-        return $percentage !== null ? round((float) $percentage, 0) : null;
+        return $percentage !== null ? round((float) $percentage, 2) : null;
     }
 
     /**
      * Calculate percentage from mean score using formula: ((mean - 1) / 4) * 100
-     * Example: 3.57 -> ((3.57 - 1) / 4) * 100 = 64.25% -> 64% (rounded)
+     * Example: 3.57 -> ((3.57 - 1) / 4) * 100 = 64.25%
+     * Returns 2 decimal places to match stored values (result/report/Excel exact match).
      */
     private function calculatePercentageFromMean($meanScore)
     {
         if ($meanScore <= 0) {
-            return 0;
+            return 0.0;
         }
-        
-        // Step 1: Subtract 1
-        $step1 = $meanScore - 1;
-        
-        // Step 2: Divide by 4
-        $step2 = $step1 / 4;
-        
-        // Step 3: Convert to percentage and round
-        $percentage = round($step2 * 100);
-        
-        return max(0, min(100, (int) $percentage));
+        $step2 = ($meanScore - 1) / 4;
+        $percentage = round($step2 * 100, 2);
+        return max(0, min(100, (float) $percentage));
     }
 
     /**
-     * Categorize score by percentage: 0-59 = Low, 60-75 = Medium, 76-100 = High
+     * Categorize score by percentage: 0-59 = low, 60-75 = medium, 76-100 = high
+     * Lowercase to match stored values (result/report/Excel exact match).
      */
     private function categorizeByPercentage($percentage)
     {
         if ($percentage < 60) {
-            return 'Low';
+            return 'low';
         } elseif ($percentage < 76) {
-            return 'Medium';
+            return 'medium';
         } else {
-            return 'High';
+            return 'high';
         }
     }
 

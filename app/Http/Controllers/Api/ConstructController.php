@@ -74,11 +74,11 @@ class ConstructController extends Controller
         ], 200);
     }
 
-    // ✅ Create New Construct
+    // ✅ Create New Construct (cluster_id optional; cluster–construct is test-specific via Excel/test_cluster_construct)
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'cluster_id' => 'required|exists:clusters,id',
+            'cluster_id' => 'nullable|exists:clusters,id',
             'name' => 'required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -118,7 +118,7 @@ class ConstructController extends Controller
             'display_order'
         ]));
 
-        $construct->load('cluster');
+        $construct->load(['cluster', 'ageGroup']);
 
         return response()->json([
             'status' => true,
@@ -140,7 +140,7 @@ class ConstructController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'cluster_id' => 'sometimes|required|exists:clusters,id',
+            'cluster_id' => 'nullable|exists:clusters,id',
             'name' => 'sometimes|required|string|max:255',
             'short_code' => 'nullable|string|max:255',
             'description' => 'nullable|string',

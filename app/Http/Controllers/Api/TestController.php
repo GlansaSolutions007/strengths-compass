@@ -1193,41 +1193,32 @@ class TestController extends Controller
             $file = $request->file('file');
             $ageGroupId = $test->age_group_id;
 
-            // Create import instance
-            $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro');
+            // Create import instance (pass sc_pro_test_id for CERC)
+            $import = new TestQuestionsImport($test->id, $ageGroupId, $test->source ?? 'SC Pro', $test->sc_pro_test_id ?? null);
 
-            // Import the file
             Excel::import($import, $file);
 
-            // Get import statistics
             $stats = $import->getStats();
             $createdQuestions = $stats['created_questions'] ?? [];
 
-            // Attach created questions to the test
             if (!empty($createdQuestions)) {
-                $testQuestions = [];
-                $orderNo = 1;
-
-                // Get existing max order_no to continue from there
-                $maxOrderNo = DB::table('test_question')
+                $maxOrderNo = (int) DB::table('test_question')
                     ->where('test_id', $test->id)
-                    ->max('order_no') ?? 0;
+                    ->max('order_no');
                 $orderNo = $maxOrderNo + 1;
+                $testQuestions = [];
 
                 foreach ($createdQuestions as $item) {
-                    $question = $item['question'];
+                    $questionId = $item['question_id'];
                     $clusterId = $item['cluster_id'];
-
-                    // Check if question already exists in test
                     $exists = DB::table('test_question')
                         ->where('test_id', $test->id)
-                        ->where('question_id', $question->id)
+                        ->where('question_id', $questionId)
                         ->exists();
-
                     if (!$exists) {
                         $testQuestions[] = [
                             'test_id' => $test->id,
-                            'question_id' => $question->id,
+                            'question_id' => $questionId,
                             'cluster_id' => $clusterId,
                             'order_no' => $orderNo++,
                             'created_at' => now(),
@@ -1241,18 +1232,17 @@ class TestController extends Controller
                 }
             }
 
-            // Reload test with questions
             $test->load('selectedQuestions');
 
-            // Prepare response
             $response = [
                 'status' => true,
                 'message' => 'Questions imported successfully',
                 'data' => [
                     'test_id' => $test->id,
-                    'success_count' => $stats['success'],
-                    'failure_count' => $stats['failures'],
-                    'total_processed' => $stats['success'] + $stats['failures'],
+                    'success_count' => $stats['success'] ?? 0,
+                    'failure_count' => $stats['failures'] ?? 0,
+                    'created_count' => $stats['created_count'] ?? 0,
+                    'reused_count' => $stats['reused_count'] ?? 0,
                     'questions_attached' => count($createdQuestions),
                     'selected_questions_count' => $test->selectedQuestions->count(),
                 ],

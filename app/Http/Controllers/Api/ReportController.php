@@ -350,9 +350,10 @@ class ReportController extends Controller
             ], 500);
         }
 
-        // Generate filename with user name
+        // Generate filename with user name and test source (SC Pro / CERC) for differentiation
         $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+        $sourceSlug = $this->getReportSourceSlug($testResult);
+        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
 
         // Get PDF output
         $pdfOutput = $mpdf->Output('', 'S');
@@ -490,9 +491,10 @@ class ReportController extends Controller
             ], 500);
         }
 
-        // Generate filename with user name
+        // Generate filename with user name and test source (SC Pro / CERC) for differentiation
         $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+        $sourceSlug = $this->getReportSourceSlug($testResult);
+        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
 
         // Get PDF output
         $pdfOutput = $mpdf->Output('', 'S');
@@ -502,6 +504,16 @@ class ReportController extends Controller
             ->header('Content-Type', 'application/pdf')
             ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
             ->header('Content-Length', strlen($pdfOutput));
+    }
+
+    /**
+     * Get a safe slug for test source to use in report filenames (e.g. SC-Pro, CERC).
+     */
+    protected function getReportSourceSlug(TestResult $testResult): string
+    {
+        $source = $testResult->test?->source ?? 'SC Pro';
+        $slug = preg_replace('/[^a-zA-Z0-9-]/', '-', trim((string) $source));
+        return $slug !== '' ? $slug : 'SC-Pro';
     }
 
     /**
@@ -699,8 +711,9 @@ class ReportController extends Controller
             return null;
         }
 
+        $sourceSlug = $this->getReportSourceSlug($testResult);
         $suffix = $type === 'full' ? 'full' : 'short';
-        $filename = 'report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $suffix . '.pdf';
+        $filename = 'report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '-' . $suffix . '.pdf';
 
         return ['pdf' => $pdfOutput, 'filename' => $filename];
     }
@@ -1403,19 +1416,17 @@ class ReportController extends Controller
             }
         }
 
-        // Enrich each construct score
+        // Enrich each construct score (use stored percentage and category for exact consistency with result/Excel)
         $enriched = [];
         foreach ($constructScores as $constructName => $scoreData) {
             $constructInfo = $constructDetailsMap[$constructName] ?? null;
 
             if (is_array($scoreData)) {
-                // Recalculate category from average (always use current thresholds: 60, 76)
                 $average = $scoreData['average'] ?? 0;
-                $percentage = $this->convertScoreToPercentage($average);
-                $category = strtolower($this->getStrengthCategory($percentage));
+                $percentage = isset($scoreData['percentage']) ? (float) $scoreData['percentage'] : $this->convertScoreToPercentage($average);
+                $category = isset($scoreData['category']) ? strtolower($scoreData['category']) : strtolower($this->getStrengthCategory((int) round($percentage)));
                 $behaviour = null;
 
-                // Get the appropriate behaviour based on category
                 if ($constructInfo) {
                     switch ($category) {
                         case 'high':
@@ -2599,8 +2610,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $sdbScores = $this->calculateSDBScores($testResult);
             $sdbPercentage = $sdbScores['percentage'] ?? null;
 
-            // Get user name for filename
+            // Get user name and source slug for filenames
             $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
+            $sourceSlug = $this->getReportSourceSlug($testResult);
 
             /* -----------------------------------------
             GENERATE PDF(s) USING mPDF
@@ -2664,7 +2676,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 $shortMpdf->SetHTMLFooter($footerHtml);
                 $shortMpdf->WriteHTML($shortHtml);
 
-                $shortFilename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+                $shortFilename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '-short.pdf';
                 $shortOutput = $shortMpdf->Output('', 'S');
                 $pdfAttachments[] = [
                     'data' => $shortOutput,
@@ -2714,7 +2726,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 $fullMpdf->SetHTMLFooter($footerHtml);
                 $fullMpdf->WriteHTML($fullHtml);
 
-                $fullFilename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+                $fullFilename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '-full.pdf';
                 $fullOutput = $fullMpdf->Output('', 'S');
                 $pdfAttachments[] = [
                     'data' => $fullOutput,
