@@ -10,6 +10,7 @@ use App\Models\UserAnswer;
 use App\Models\OptionsModel;
 use App\Models\QuestionsModel;
 use App\Models\ScoringRule;
+use App\Models\Cluster;
 use App\Models\User;
 use App\Models\Language;
 use App\Models\QuestionTranslation;
@@ -1601,7 +1602,16 @@ private function calculateClusterScores($userAnswers, $test)
 
     /**
      * Download test results as Excel (new format: user details, clusters, constructs, SDB - no questions).
-     * Same filters as downloadTestResultsExcel: from_date, to_date, age_group_id, test_id, user_ids.
+     *
+     * One sheet per test; each sheet has Column A = labels, Columns B+ = one column per candidate (selected users
+     * who took that test). When selecting specific users, they may appear in multiple tests → multiple sheets.
+     *
+     * Payload (GET query params):
+     * - age_group_id: required when user_ids not provided; optional when user_ids is provided
+     * - from_date, to_date: optional date filter
+     * - test_id: optional — limit to one test
+     * - user_ids: optional — array or comma-separated user ids; only these users' results are included
+     *
      * GET test-results-comprehensive/export-summary
      */
     public function downloadTestResultsSummaryExcel(Request $request)
@@ -1616,14 +1626,19 @@ private function calculateClusterScores($userAnswers, $test)
                 $userIdsInput = [];
             }
 
-            $validator = Validator::make(array_merge($request->all(), ['user_ids' => $userIdsInput]), [
+            $rules = [
                 'from_date' => 'nullable|date',
                 'to_date' => 'nullable|date',
-                'age_group_id' => 'required|exists:age_groups,id',
+                'age_group_id' => 'nullable|exists:age_groups,id',
                 'test_id' => 'nullable|exists:tests,id',
                 'user_ids' => 'nullable|array',
                 'user_ids.*' => 'integer|exists:users,id',
-            ]);
+            ];
+            if (empty($userIdsInput)) {
+                $rules['age_group_id'] = 'required|exists:age_groups,id';
+            }
+
+            $validator = Validator::make(array_merge($request->all(), ['user_ids' => $userIdsInput]), $rules);
 
             if ($validator->fails()) {
                 return response()->json([
@@ -1667,8 +1682,10 @@ private function calculateClusterScores($userAnswers, $test)
 
             $testDatasets = [];
             foreach ($groupedByTest as $testIdVal => $testResultsGroup) {
-                $testTitle = $testResultsGroup->first()['test']['title'] ?? "Test {$testIdVal}";
-                $exportData = $this->buildSummaryExportDatasets($testResultsGroup);
+                // Sort by user id so the same user is in the same column across sheets (when they took multiple tests)
+                $sorted = $testResultsGroup->sortBy(fn ($r) => $r['user']['id'] ?? 0)->values();
+                $testTitle = $sorted->first()['test']['title'] ?? "Test {$testIdVal}";
+                $exportData = $this->buildSummaryExportDatasets($sorted);
                 $testDatasets[] = [
                     'test_id' => $testIdVal,
                     'test_title' => $testTitle,
@@ -1748,9 +1765,28 @@ private function calculateClusterScores($userAnswers, $test)
                 return null;
             }
 
-            $questionOrder = $testResult->test->selectedQuestions
-                ? $testResult->test->selectedQuestions->pluck('pivot.order_no', 'id')->toArray()
+            $test = $testResult->test;
+            $questionOrder = $test->selectedQuestions
+                ? $test->selectedQuestions->pluck('pivot.order_no', 'id')->toArray()
                 : [];
+
+            // Test-specific cluster per question (from test_question pivot) for correct Excel/display
+            $questionIdToCluster = [];
+            if ($test->selectedQuestions) {
+                $pivotClusterIds = $test->selectedQuestions->pluck('pivot.cluster_id')->filter()->unique()->values()->all();
+                $clustersById = !empty($pivotClusterIds)
+                    ? Cluster::whereIn('id', $pivotClusterIds)->get()->keyBy('id')
+                    : collect();
+                foreach ($test->selectedQuestions as $sq) {
+                    $cid = $sq->pivot->cluster_id ?? null;
+                    if ($cid && $clustersById->has($cid)) {
+                        $questionIdToCluster[$sq->id] = [
+                            'id' => $cid,
+                            'name' => $clustersById->get($cid)->name,
+                        ];
+                    }
+                }
+            }
 
             // For CERC tests, get combined answers (SC Pro + CERC)
             $answersToProcess = $testResult->answers;
@@ -1771,13 +1807,22 @@ private function calculateClusterScores($userAnswers, $test)
                 });
             }
 
-            $questionsWithAnswers = $answersToProcess->map(function ($answer) use ($options, $questionOrder) {
+            $questionsWithAnswers = $answersToProcess->map(function ($answer) use ($options, $questionOrder, $questionIdToCluster) {
                 $question = $answer->question;
                 if (!$question) {
                     return null;
                 }
 
                 $optionLabel = $options->get($answer->answer_value);
+
+                // Use test-specific cluster (from test_question) when available; else fallback to construct->cluster
+                $clusterForQuestion = $questionIdToCluster[$question->id] ?? null;
+                if (!$clusterForQuestion && $question->construct && $question->construct->cluster) {
+                    $clusterForQuestion = [
+                        'id' => $question->construct->cluster->id,
+                        'name' => $question->construct->cluster->name,
+                    ];
+                }
 
                 return [
                     'question_id' => $question->id,
@@ -1787,9 +1832,9 @@ private function calculateClusterScores($userAnswers, $test)
                     'construct' => $question->construct ? [
                         'id' => $question->construct->id,
                         'name' => $question->construct->name,
-                        'cluster' => $question->construct->cluster ? [
-                            'id' => $question->construct->cluster->id,
-                            'name' => $question->construct->cluster->name,
+                        'cluster' => $clusterForQuestion ? [
+                            'id' => $clusterForQuestion['id'],
+                            'name' => $clusterForQuestion['name'],
                         ] : null,
                     ] : null,
                     'answer' => [

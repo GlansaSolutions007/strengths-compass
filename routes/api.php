@@ -168,7 +168,7 @@ Route::post('tests/{testId}/check-cerc-eligibility', [TestTakingController::clas
 Route::get('tests/{testId}/results', [TestTakingController::class, 'getTestResults']); // Get all results for a test (scores only)
 Route::get('test-results-comprehensive/all', [TestTakingController::class, 'getAllTestResultsComprehensive']); // Get all test results with comprehensive data for all users
 Route::get('test-results-comprehensive/export', [TestTakingController::class, 'downloadTestResultsExcel']); // Download Excel (previous format: Cluster, Construct, Questions + users)
-Route::get('test-results-comprehensive/export-summary', [TestTakingController::class, 'downloadTestResultsSummaryExcel']); // Download Excel (new format: user details, clusters, constructs, SDB - no questions)
+Route::get('test-results-comprehensive/export-summary', [TestTakingController::class, 'downloadTestResultsSummaryExcel']); // GET ?age_group_id=&from_date=&to_date=&test_id=&user_ids=1,2,3 — one sheet per test, columns = selected users who took that test
 
 // Report routes
 Route::get('test-results/{testResultId}/report', [ReportController::class, 'getReport']); // Get report data for a test result
