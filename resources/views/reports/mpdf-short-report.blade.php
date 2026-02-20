@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Axis Strengths Compass – Short Report</title>
+    <title>{{ $reportTitle ?? 'Axis Strengths Compass' }} – Short Report</title>
 
     <style>
         * {
@@ -210,7 +210,7 @@
             </div>
         @endif
 
-        <div class="cover-title">Axis Strengths Compass</div>
+        <div class="cover-title">{{ $reportTitle ?? 'Axis Strengths Compass' }}</div>
         <div class="cover-subtitle">Assessment Report</div>
 
         <div class="cover-info-box">

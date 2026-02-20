@@ -47,7 +47,7 @@ class ReportController extends Controller
         
         if (!$report) {
             // Create a new report record with default summary
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -55,7 +55,7 @@ class ReportController extends Controller
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
@@ -86,8 +86,13 @@ class ReportController extends Controller
         $testResultData['sdb_raw_score'] = $sdbScores['raw'];
         $testResultData['sdb_percentage'] = $sdbScores['percentage'];
         $testResultData['sdb_band'] = $sdbScores['band'];
-        // Remove test relationship from test_result
-        unset($testResultData['test']);
+        // Include minimal test (id, title, source) for frontend e.g. download filename (CERC vs SC-Pro)
+        $testResultData['test'] = $testResult->test ? [
+            'id' => $testResult->test->id,
+            'title' => $testResult->test->title,
+            'source' => $testResult->test->source ?? null,
+            'sc_pro_test_id' => $testResult->test->sc_pro_test_id ?? null,
+        ] : null;
 
         // Convert report to array and remove test_result relationship to avoid duplication
         $reportData = $report->toArray();
@@ -130,7 +135,7 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -138,7 +143,7 @@ class ReportController extends Controller
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         /* -----------------------------------------
@@ -176,7 +181,7 @@ class ReportController extends Controller
             'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary,
+            'reportSummary'              => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
@@ -201,9 +206,10 @@ class ReportController extends Controller
             ], 500);
         }
 
-        // Generate filename with user name
+        // Generate filename with user name and source (CERC / SC-Pro) for recognition
         $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+        $sourceSlug = $this->getReportSourceSlug($testResult);
+        $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
 
         // Get PDF output
         $pdfOutput = $pdf->output();
@@ -251,7 +257,7 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -259,7 +265,7 @@ class ReportController extends Controller
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         /* -----------------------------------------
@@ -292,16 +298,18 @@ class ReportController extends Controller
         // Strip embedded disclaimer from report summary (shown in page footer instead)
         $reportSummary = $this->stripDisclaimerFromSummary($report->report_summary ?? '');
 
+        $reportTitle = $this->getReportTitle($testResult->test);
         $data = [
             'user'                       => $testResult->user,
             'testResult'                 => $testResult,
             'test'                        => $testResult->test,
             'report'                      => $report,
+            'reportTitle'                => $reportTitle,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
             'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $reportSummary,
+            'reportSummary'              => $this->normalizeReportSummaryConstructCount($reportSummary, $testResult->test),
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterImage,
             'radarConstructChartBase64'  => $radarConstructImage,
@@ -332,10 +340,10 @@ class ReportController extends Controller
                 'tempDir' => storage_path('app/temp'),
             ]);
 
-            // Set metadata
-            $mpdf->SetTitle('Axis Strengths Compass Report');
-            $mpdf->SetAuthor('Axis Strengths Compass');
-            $mpdf->SetCreator('Axis Strengths Compass System');
+            // Set metadata (dynamic title for CERC vs SC Pro)
+            $mpdf->SetTitle($reportTitle . ' Report');
+            $mpdf->SetAuthor($reportTitle);
+            $mpdf->SetCreator($reportTitle . ' System');
 
             // Full report: Disclaimer in page footer (Report Summary pages only - controlled via htmlpagefooter in blade)
             // Write HTML content
@@ -401,7 +409,7 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -409,7 +417,7 @@ class ReportController extends Controller
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         /* -----------------------------------------
@@ -435,16 +443,17 @@ class ReportController extends Controller
 
         // Strip embedded disclaimer from report summary (shown in page footer instead)
         $reportSummary = $this->stripDisclaimerFromSummary($report->report_summary ?? '');
-
+        $reportTitle = $this->getReportTitle($testResult->test);
         $data = [
             'user'                       => $testResult->user,
             'testResult'                 => $testResult,
             'test'                        => $testResult->test,
             'report'                      => $report,
+            'reportTitle'                => $reportTitle,
             'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
             'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
-            'reportSummary'              => $reportSummary,
+            'reportSummary'              => $this->normalizeReportSummaryConstructCount($reportSummary, $testResult->test),
             'logoBase64'                 => $logoBase64,
             'sdbPercentage'              => $sdbPercentage,
         ];
@@ -473,10 +482,10 @@ class ReportController extends Controller
                 'tempDir' => storage_path('app/temp'),
             ]);
 
-            // Set metadata
-            $mpdf->SetTitle('Axis Strengths Compass Report');
-            $mpdf->SetAuthor('Axis Strengths Compass');
-            $mpdf->SetCreator('Axis Strengths Compass System');
+            // Set metadata (dynamic title for CERC vs SC Pro)
+            $mpdf->SetTitle($reportTitle . ' Report');
+            $mpdf->SetAuthor($reportTitle);
+            $mpdf->SetCreator($reportTitle . ' System');
 
             // Short report: Disclaimer in page footer (Report Summary pages only - controlled via htmlpagefooter in blade)
             // Write HTML content
@@ -508,12 +517,41 @@ class ReportController extends Controller
 
     /**
      * Get a safe slug for test source to use in report filenames (e.g. SC-Pro, CERC).
+     * CERC: test has source === 'CERC' or has sc_pro_test_id set (linked to SC Pro).
+     * Uses test_id for a direct lookup so the slug always matches the test the result belongs to.
      */
     protected function getReportSourceSlug(TestResult $testResult): string
     {
-        $source = $testResult->test?->source ?? 'SC Pro';
+        if (!$testResult->test_id) {
+            return 'SC-Pro';
+        }
+        $test = \App\Models\Test::where('id', $testResult->test_id)->first(['source', 'sc_pro_test_id']);
+        if (!$test) {
+            return 'SC-Pro';
+        }
+        if (($test->source ?? '') === 'CERC' || !empty($test->sc_pro_test_id)) {
+            return 'CERC';
+        }
+        $source = $test->source ?? 'SC Pro';
         $slug = preg_replace('/[^a-zA-Z0-9-]/', '-', trim((string) $source));
         return $slug !== '' ? $slug : 'SC-Pro';
+    }
+
+    /**
+     * Get report title by test source: CERC = Competitive Exams Readiness Compass, else Axis Strengths Compass.
+     *
+     * @param \App\Models\Test|null $test
+     * @return string
+     */
+    private function getReportTitle($test): string
+    {
+        if (!$test) {
+            return 'Axis Strengths Compass';
+        }
+        if (($test->source ?? '') === 'CERC' || !empty($test->sc_pro_test_id)) {
+            return 'Competitive Exams Readiness Compass';
+        }
+        return 'Axis Strengths Compass';
     }
 
     /**
@@ -619,14 +657,14 @@ class ReportController extends Controller
 
         $report = $testResult->report;
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
                 'generated_at' => now(),
             ]);
         } else {
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         $clusterScores = $this->enrichClusterScores($testResult);
@@ -643,16 +681,18 @@ class ReportController extends Controller
             $radarClusterImage = $this->generateRadarmpdfChartSvg($clusterScores);
             $radarConstructImage = $this->generateRadarmpdfChartSvg($constructScores);
 
+            $reportTitle = $this->getReportTitle($testResult->test);
             $data = [
                 'user' => $testResult->user,
                 'testResult' => $testResult,
                 'test' => $testResult->test,
                 'report' => $report,
+                'reportTitle' => $reportTitle,
                 'testName' => $testResult->test->title ?? 'Strengths Assessment',
                 'generatedAt' => ($testResult->created_at ?? now())->format('F d, Y'),
                 'clusterScores' => $clusterScores,
                 'constructScores' => $constructScores,
-                'reportSummary' => $report->report_summary,
+                'reportSummary' => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
                 'logoBase64' => $logoBase64,
                 'radarClusterChartBase64' => $radarClusterImage,
                 'radarConstructChartBase64' => $radarConstructImage,
@@ -660,15 +700,17 @@ class ReportController extends Controller
             ];
             $html = view('reports.mpdf-report', $data)->render();
         } else {
+            $reportTitle = $this->getReportTitle($testResult->test);
             $data = [
                 'user' => $testResult->user,
                 'testResult' => $testResult,
                 'test' => $testResult->test,
                 'report' => $report,
+                'reportTitle' => $reportTitle,
                 'testName' => $testResult->test->title ?? 'Strengths Assessment',
                 'generatedAt' => ($testResult->created_at ?? now())->format('F d, Y'),
                 'clusterScores' => $clusterScores,
-                'reportSummary' => $report->report_summary,
+                'reportSummary' => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
                 'logoBase64' => $logoBase64,
                 'sdbPercentage' => $sdbPercentage,
             ];
@@ -689,9 +731,9 @@ class ReportController extends Controller
                 'tempDir' => storage_path('app/temp'),
             ]);
 
-            $mpdf->SetTitle('Axis Strengths Compass Report');
-            $mpdf->SetAuthor('Axis Strengths Compass');
-            $mpdf->SetCreator('Axis Strengths Compass System');
+            $mpdf->SetTitle(($reportTitle ?? $this->getReportTitle($testResult->test)) . ' Report');
+            $mpdf->SetAuthor($reportTitle ?? $this->getReportTitle($testResult->test));
+            $mpdf->SetCreator(($reportTitle ?? $this->getReportTitle($testResult->test)) . ' System');
 
             if ($type === 'short') {
                 $footerHtml = '
@@ -741,7 +783,7 @@ class ReportController extends Controller
         $report = $testResult->report;
         
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -749,7 +791,7 @@ class ReportController extends Controller
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         $clusterInsights = $this->calculateClusterInsights($testResult->cluster_scores ?? []);
@@ -874,7 +916,7 @@ class ReportController extends Controller
             $report = $testResult->report;
             
             if (!$report) {
-                $defaultSummary = $this->generateDefaultSummary($testResult->user);
+                $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
                 $report = TestReport::create([
                     'test_result_id' => $testResult->id,
                     'report_summary' => $defaultSummary,
@@ -882,7 +924,7 @@ class ReportController extends Controller
                 ]);
             } else {
                 // Ensure report has a summary
-                $this->ensureReportSummary($report, $testResult->user);
+                $this->ensureReportSummary($report, $testResult->user, $testResult->test);
             }
 
             // Delete old PDF if exists
@@ -990,8 +1032,11 @@ class ReportController extends Controller
             ], 500);
         }
 
-        // Generate filename
-        $filename = 'short-report-' . $testResult->id . '-' . now()->format('Y-m-d') . '.pdf';
+        // Generate filename with user name and source (CERC / SC-Pro) for recognition
+        $userName = $testResult->user->name ?? trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 'user';
+        $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
+        $sourceSlug = $this->getReportSourceSlug($testResult);
+        $filename = 'short-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
 
         // Return PDF download response
         return response($pdf->output(), 200)
@@ -1033,7 +1078,7 @@ class ReportController extends Controller
         $report = $testResult->report;
 
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -1041,7 +1086,7 @@ class ReportController extends Controller
         } else {
             // Ensure report has a summary if not being updated
             if (!$request->has('report_summary') && empty($report->report_summary)) {
-                $this->ensureReportSummary($report, $testResult->user);
+                $this->ensureReportSummary($report, $testResult->user, $testResult->test);
             }
         }
 
@@ -1487,7 +1532,7 @@ class ReportController extends Controller
         // Get or create report
         $report = $testResult->report;
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -1495,7 +1540,7 @@ class ReportController extends Controller
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         /* -----------------------------------------
@@ -1533,7 +1578,7 @@ class ReportController extends Controller
             'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary,
+            'reportSummary'              => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
@@ -1600,12 +1645,13 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $pdf->setOption('footer-html', $footerHtml);
             $pdf->setOption('footer-spacing', 5);
 
-            // Create filename with user name
+            // Create filename with user name and source (CERC / SC-Pro) for recognition
             $userName = $testResult->user->name ?? 
                        trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
                        'user';
             $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-            $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+            $sourceSlug = $this->getReportSourceSlug($testResult);
+            $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
             $output   = $pdf->output();
 
             Storage::disk('public')->put('reports/' . $filename, $output);
@@ -2243,7 +2289,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         // Get or create report
         $report = $testResult->report;
         if (!$report) {
-            $defaultSummary = $this->generateDefaultSummary($testResult->user);
+            $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
                 'test_result_id' => $testResult->id,
                 'report_summary' => $defaultSummary,
@@ -2251,7 +2297,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             ]);
         } else {
             // Ensure report has a summary
-            $this->ensureReportSummary($report, $testResult->user);
+            $this->ensureReportSummary($report, $testResult->user, $testResult->test);
         }
 
         /* -----------------------------------------
@@ -2289,7 +2335,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
             'clusterScores'              => $clusterScores,
             'constructScores'            => $constructScores,
-            'reportSummary'              => $report->report_summary,
+            'reportSummary'              => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
@@ -2355,9 +2401,10 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $pdf->setOption('footer-html', $footerHtml);
             $pdf->setOption('footer-spacing', 5);
 
-            // Create filename with user name
+            // Create filename with user name and source (CERC / SC-Pro) for recognition
             $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
-            $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '.pdf';
+            $sourceSlug = $this->getReportSourceSlug($testResult);
+            $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
             $output   = $pdf->output();
 
             // Save PDF to storage
@@ -2375,8 +2422,10 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $userEmail = $testResult->user->email;
             $userDisplayName = $userName;
             $testName = $testResult->test->title ?? 'Strengths Assessment';
+            $reportTitle = $this->getReportTitle($testResult->test);
+            $constructCount = ($testResult->test && ($testResult->test->source ?? '') === 'CERC') ? 14 : 18;
 
-            Mail::send([], [], function ($message) use ($userEmail, $userDisplayName, $output, $filename, $testName) {
+            Mail::send([], [], function ($message) use ($userEmail, $userDisplayName, $output, $filename, $testName, $reportTitle, $constructCount) {
                 $message->to($userEmail, $userDisplayName)
                     ->subject('Your Strengths Compass Assessment Report - ' . $testName)
                     ->attachData($output, $filename, [
@@ -2385,14 +2434,14 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                     ->html('
                         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
                             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
-                                <h1 style="margin: 0; font-size: 24px;">Axis Strengths Compass</h1>
+                                <h1 style="margin: 0; font-size: 24px;">' . htmlspecialchars($reportTitle) . '</h1>
                                 <p style="margin: 10px 0 0 0; opacity: 0.9;">Assessment Report</p>
                             </div>
                             <div style="padding: 30px; background: #ffffff;">
                                 <h2 style="color: #667eea; margin-top: 0;">Your Assessment Report is Ready</h2>
                                 <p>Dear ' . htmlspecialchars($userDisplayName) . ',</p>
                                 <p>Thank you for completing the Strengths Compass Assessment. Your personalized report is attached to this email.</p>
-                                <p>The report contains detailed insights about your strengths across six clusters and 18 psychological constructs, along with radar charts and personalized recommendations.</p>
+                                <p>The report contains detailed insights about your strengths across six clusters and ' . $constructCount . ' psychological constructs, along with radar charts and personalized recommendations.</p>
                                 <p><strong>Please review the attached PDF report for your complete assessment results.</strong></p>
                                 <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
                                     <p style="margin: 0; color: #555; font-size: 14px;">
@@ -2408,7 +2457,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                                 <p>If you have any questions or need further clarification, please feel free to contact us at <strong>guide@axiscompass.in</strong>.</p>
                                 <p style="margin-top: 30px;">
                                     Best regards,<br>
-                                    <strong>Axis Strengths Compass Team</strong>
+                                    <strong>' . htmlspecialchars($reportTitle) . ' Team</strong>
                                 </p>
                             </div>
                             <div style="background: #f8f9fa; padding: 20px; text-align: center; color: #777; font-size: 12px; border-top: 1px solid #e9ecef;">
@@ -2576,7 +2625,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             // Get or create report
             $report = $testResult->report;
             if (!$report) {
-                $defaultSummary = $this->generateDefaultSummary($testResult->user);
+                $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
                 $report = TestReport::create([
                     'test_result_id' => $testResult->id,
                     'report_summary' => $defaultSummary,
@@ -2584,7 +2633,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 ]);
             } else {
                 // Ensure report has a summary
-                $this->ensureReportSummary($report, $testResult->user);
+                $this->ensureReportSummary($report, $testResult->user, $testResult->test);
             }
 
             /* -----------------------------------------
@@ -2640,6 +2689,8 @@ or medical concerns, consult a qualified professional. For any queries regarding
             $defaultFontConfig = (new FontVariables())->getDefaults();
             $fontData = $defaultFontConfig['fontdata'];
 
+            $reportTitle = $this->getReportTitle($testResult->test);
+
             // Generate Short PDF if needed
             if ($pdfType === 'short' || $pdfType === 'both') {
                 $shortData = [
@@ -2647,10 +2698,11 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'testResult'                 => $testResult,
                     'test'                        => $testResult->test,
                     'report'                      => $report,
+                    'reportTitle'                => $reportTitle,
                     'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
                     'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
                     'clusterScores'              => $clusterScores,
-                    'reportSummary'              => $report->report_summary,
+                    'reportSummary'              => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
                     'logoBase64'                 => $logoBase64,
                     'sdbPercentage'              => $sdbPercentage,
                 ];
@@ -2670,9 +2722,9 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'tempDir' => storage_path('app/temp'),
                 ]);
 
-                $shortMpdf->SetTitle('Axis Strengths Compass Report');
-                $shortMpdf->SetAuthor('Axis Strengths Compass');
-                $shortMpdf->SetCreator('Axis Strengths Compass System');
+                $shortMpdf->SetTitle($reportTitle . ' Report');
+                $shortMpdf->SetAuthor($reportTitle);
+                $shortMpdf->SetCreator($reportTitle . ' System');
                 $shortMpdf->SetHTMLFooter($footerHtml);
                 $shortMpdf->WriteHTML($shortHtml);
 
@@ -2694,11 +2746,12 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'testResult'                 => $testResult,
                     'test'                        => $testResult->test,
                     'report'                      => $report,
+                    'reportTitle'                => $reportTitle,
                     'testName'                   => $testResult->test->title ?? 'Strengths Assessment',
                     'generatedAt'                => ($testResult->created_at ?? now())->format('F d, Y'),
                     'clusterScores'              => $clusterScores,
                     'constructScores'            => $constructScores,
-                    'reportSummary'              => $report->report_summary,
+                    'reportSummary'              => $this->normalizeReportSummaryConstructCount($report->report_summary ?? '', $testResult->test),
                     'logoBase64'                 => $logoBase64,
                     'radarClusterChartBase64'    => $radarClusterImage,
                     'radarConstructChartBase64'  => $radarConstructImage,
@@ -2720,9 +2773,9 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     'tempDir' => storage_path('app/temp'),
                 ]);
 
-                $fullMpdf->SetTitle('Axis Strengths Compass Report');
-                $fullMpdf->SetAuthor('Axis Strengths Compass');
-                $fullMpdf->SetCreator('Axis Strengths Compass System');
+                $fullMpdf->SetTitle($reportTitle . ' Report');
+                $fullMpdf->SetAuthor($reportTitle);
+                $fullMpdf->SetCreator($reportTitle . ' System');
                 $fullMpdf->SetHTMLFooter($footerHtml);
                 $fullMpdf->WriteHTML($fullHtml);
 
@@ -2756,8 +2809,8 @@ or medical concerns, consult a qualified professional. For any queries regarding
             $userDisplayName = $userName;
             $testName = $testResult->test->title ?? 'Axis Strengths Assessment';
 
-            // Build email content based on PDF type
-            $emailContent = $this->buildEmailContent($userDisplayName, $testName, $pdfType);
+            // Build email content based on PDF type (dynamic title and construct count for CERC vs SC Pro)
+            $emailContent = $this->buildEmailContent($userDisplayName, $testName, $pdfType, $testResult->test);
 
             Mail::send([], [], function ($message) use ($userEmail, $userDisplayName, $pdfAttachments, $testName, $emailContent) {
                 $message->to($userEmail, $userDisplayName)
@@ -2954,15 +3007,19 @@ or medical concerns, consult a qualified professional. For any queries regarding
     }
 
     /**
-     * Build email content based on PDF type
-     * 
+     * Build email content based on PDF type. Title and construct count depend on test source (CERC vs SC Pro).
+     *
      * @param string $userDisplayName
      * @param string $testName
      * @param string $pdfType 'short', 'full', or 'both'
+     * @param \App\Models\Test|null $test
      * @return string
      */
-    private function buildEmailContent($userDisplayName, $testName, $pdfType)
+    private function buildEmailContent($userDisplayName, $testName, $pdfType, $test = null)
     {
+        $reportTitle = $this->getReportTitle($test);
+        $constructCount = ($test && ($test->source ?? '') === 'CERC') ? 14 : 18;
+
         $reportDescription = '';
         $reportItems = '';
 
@@ -2974,7 +3031,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 <li>Strengths to Leverage and Emerging Capabilities</li>
                 <li>Personalized guidance (if applicable)</li>';
         } elseif ($pdfType === 'full') {
-            $reportDescription = 'Your complete report contains detailed insights about your strengths across six clusters and 18 psychological constructs, along with radar charts and personalized recommendations.';
+            $reportDescription = 'Your complete report contains detailed insights about your strengths across six clusters and ' . $constructCount . ' psychological constructs, along with radar charts and personalized recommendations.';
             $reportItems = '
                 <li>Cover page with your details</li>
                 <li>Report summary with cluster overview</li>
@@ -2992,7 +3049,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
         return '
             <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
-                    <h1 style="margin: 0; font-size: 24px;">Axis Strengths Compass</h1>
+                    <h1 style="margin: 0; font-size: 24px;">' . htmlspecialchars($reportTitle) . '</h1>
                     <p style="margin: 10px 0 0 0; opacity: 0.9;">Assessment Report</p>
                 </div>
                 <div style="padding: 30px; background: #ffffff;">
@@ -3011,7 +3068,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
                     <p>If you have any questions or need further clarification, please feel free to contact us at <strong>guide@axiscompass.in</strong>.</p>
                     <p style="margin-top: 30px;">
                         Best regards,<br>
-                        <strong>Axis Strengths Compass Team</strong>
+                        <strong>' . htmlspecialchars($reportTitle) . ' Team</strong>
                     </p>
                 </div>
                 <div style="background: #f8f9fa; padding: 20px; text-align: center; color: #777; font-size: 12px; border-top: 1px solid #e9ecef;">
@@ -3021,15 +3078,16 @@ or medical concerns, consult a qualified professional. For any queries regarding
     }
 
     /**
-     * Generate default summary text dynamically based on user name
-     * 
+     * Generate default summary text dynamically based on user name and test type (CERC: 14 constructs, SC Pro: 18 constructs).
+     *
      * @param \App\Models\User|null $user
+     * @param \App\Models\Test|null $test
      * @return string
      */
-    private function generateDefaultSummary($user = null)
+    private function generateDefaultSummary($user = null, $test = null)
     {
         $candidateName = 'the candidate';
-        
+
         if ($user) {
             if (isset($user->name) && !empty($user->name)) {
                 $candidateName = $user->name;
@@ -3037,23 +3095,63 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 $candidateName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
             }
         }
-        
-        return "This summary presents the cluster-level results from {$candidateName}'s Strengths Compass Assessment. The assessment measures 18 psychological constructs grouped into six clusters. Based on percentage scores, each cluster falls into one of three bands: HIGH - indicates a core strength to leverage, MEDIUM - indicates an emerging capability, and LOW - indicates a development priority. The clusters are presented below in two groups — Strengths and Developing Areas.";
+
+        $constructCount = ($test && ($test->source ?? '') === 'CERC') ? 14 : 18;
+
+        return "This summary presents the cluster-level results from {$candidateName}'s Strengths Compass Assessment. The assessment measures {$constructCount} psychological constructs grouped into six clusters. Based on percentage scores, each cluster falls into one of three bands: HIGH - indicates a core strength to leverage, MEDIUM - indicates an emerging capability, and LOW - indicates a development priority. The clusters are presented below in two groups — Strengths and Developing Areas.";
     }
 
     /**
-     * Ensure report has a summary (set default if null)
-     * 
+     * Ensure report has a summary (set default if null) and fix wrong construct count for CERC vs SC Pro.
+     *
      * @param \App\Models\TestReport $report
      * @param \App\Models\User|null $user
+     * @param \App\Models\Test|null $test
      * @return void
      */
-    private function ensureReportSummary($report, $user = null)
+    private function ensureReportSummary($report, $user = null, $test = null)
     {
         if (empty($report->report_summary)) {
-            $report->report_summary = $this->generateDefaultSummary($user);
+            $report->report_summary = $this->generateDefaultSummary($user, $test);
+            $report->save();
+            return;
+        }
+
+        // Fix existing summaries that have wrong construct count (e.g. CERC stored with "18")
+        $isCerc = $test && ($test->source ?? '') === 'CERC';
+        $summary = $report->report_summary;
+        $has18 = strpos($summary, '18 psychological constructs') !== false;
+        $has14 = strpos($summary, '14 psychological constructs') !== false;
+
+        if ($isCerc && $has18) {
+            $report->report_summary = str_replace('18 psychological constructs', '14 psychological constructs', $summary);
+            $report->save();
+        } elseif (!$isCerc && $has14) {
+            $report->report_summary = str_replace('14 psychological constructs', '18 psychological constructs', $summary);
             $report->save();
         }
+    }
+
+    /**
+     * Normalize construct count in report summary for display (CERC = 14, SC Pro = 18).
+     *
+     * @param string $summary
+     * @param \App\Models\Test|null $test
+     * @return string
+     */
+    private function normalizeReportSummaryConstructCount(string $summary, $test): string
+    {
+        if (empty(trim($summary))) {
+            return $summary;
+        }
+        $isCerc = $test && ($test->source ?? '') === 'CERC';
+        if ($isCerc && strpos($summary, '18 psychological constructs') !== false) {
+            return str_replace('18 psychological constructs', '14 psychological constructs', $summary);
+        }
+        if (!$isCerc && strpos($summary, '14 psychological constructs') !== false) {
+            return str_replace('14 psychological constructs', '18 psychological constructs', $summary);
+        }
+        return $summary;
     }
 
     /**

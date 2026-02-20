@@ -897,6 +897,8 @@ private function calculateClusterScores($userAnswers, $test)
                     'id' => $testResult->test->id,
                     'title' => $testResult->test->title,
                     'description' => $testResult->test->description,
+                    'source' => $testResult->test->source ?? null,
+                    'sc_pro_test_id' => $testResult->test->sc_pro_test_id ?? null,
                 ],
                 'user' => [
                     'id' => $testResult->user->id,

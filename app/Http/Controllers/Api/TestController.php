@@ -375,10 +375,11 @@ class TestController extends Controller
 
     /**
      * Display the specified resource.
+     * Constructs per cluster come from test_cluster_construct (test-specific assignment), not cluster->constructs.
      */
     public function show(string $id)
     {
-        $test = Test::with(['clusters', 'clusters.constructs', 'ageGroup'])->find($id);
+        $test = Test::with(['clusters', 'ageGroup'])->find($id);
 
         if (!$test) {
             return response()->json([
@@ -389,8 +390,14 @@ class TestController extends Controller
 
         // Get selected questions (if any) or available questions
         $selectedQuestions = $test->selectedQuestions()->get();
-        
+
         $testData = $test->toArray();
+        // Populate constructs per cluster from test_cluster_construct (test-specific assignment)
+        $testData['clusters'] = $test->clusters->map(function ($cluster) use ($test) {
+            $clusterArray = $cluster->toArray();
+            $clusterArray['constructs'] = $test->getConstructsForCluster($cluster->id)->toArray();
+            return $clusterArray;
+        })->toArray();
         $testData['selected_questions'] = $selectedQuestions;
         $testData['selected_questions_count'] = $selectedQuestions->count();
 
