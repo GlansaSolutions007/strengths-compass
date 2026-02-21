@@ -54,82 +54,66 @@ class TestTakingController extends Controller
         if ($test->source === 'CERC') {
             $userId = $request->input('user_id');
             
-            if (!$userId) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'user_id is required for CERC tests. Please provide user_id to check eligibility.',
-                    'requires_sc_pro_completion' => true
-                ], 422);
-            }
-            
-            // Find SC Pro test - use explicit mapping if available, otherwise fallback to age group
-            if ($test->sc_pro_test_id) {
-                // Use explicit mapping
-                $scProTest = Test::where('id', $test->sc_pro_test_id)
-                    ->where('source', 'SC Pro')
-                    ->where('is_active', true)
-                    ->first();
-            } else {
-                // Fallback: Find SC Pro test for same age group (backward compatibility)
-                $scProTest = Test::where('source', 'SC Pro')
-                    ->where('is_active', true)
-                    ->where('age_group_id', $test->age_group_id)
-                    ->first();
-            }
-            
-            if (!$scProTest) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'SC Pro test not found or not mapped. CERC test requires SC Pro completion first.',
-                    'requires_sc_pro_completion' => true
-                ], 422);
-            }
-            
-            // Check if user has completed SC Pro test
-            $scProTestResult = TestResult::where('user_id', $userId)
-                ->where('test_id', $scProTest->id)
-                ->where('status', 'completed')
-                ->latest()
-                ->first();
-            
-            if (!$scProTestResult) {
-                return response()->json([
-                    'status' => false,
-                    'message' => 'You must complete the SC Pro test before taking the CERC test.',
-                    'requires_sc_pro_completion' => true,
-                    'sc_pro_test_id' => $scProTest->id,
-                    'sc_pro_test_title' => $scProTest->title
-                ], 403);
-            }
-            
-            // CERC uses same question IDs as SC Pro (existing questions reused). Map and filter by question_id only.
-            $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)->get();
-            $answeredQuestionIds = $scProAnswers->pluck('question_id')->unique()->values()->toArray();
+            // user_id is optional for CERC - user can take test directly without prior SC Pro completion
+            // But if provided AND user has completed SC Pro, check for SC Pro answers to pre-fill/filter
+            if ($userId) {
+                // Find SC Pro test - use explicit mapping if available, otherwise fallback to age group
+                if ($test->sc_pro_test_id) {
+                    // Use explicit mapping
+                    $scProTest = Test::where('id', $test->sc_pro_test_id)
+                        ->where('source', 'SC Pro')
+                        ->where('is_active', true)
+                        ->first();
+                } else {
+                    // Fallback: Find SC Pro test for same age group (backward compatibility)
+                    $scProTest = Test::where('source', 'SC Pro')
+                        ->where('is_active', true)
+                        ->where('age_group_id', $test->age_group_id)
+                        ->first();
+                }
+                
+                // Check if user has completed SC Pro test (if SC Pro test exists)
+                if ($scProTest) {
+                    $scProTestResult = TestResult::where('user_id', $userId)
+                        ->where('test_id', $scProTest->id)
+                        ->where('status', 'completed')
+                        ->latest()
+                        ->first();
+                    
+                    // If user has completed SC Pro, filter and pre-fill CERC answers
+                    // Otherwise, show all CERC questions (user taking CERC directly without SC Pro)
+                    if ($scProTestResult) {
+                        // CERC uses same question IDs as SC Pro (existing questions reused). Map and filter by question_id only.
+                        $scProAnswers = UserAnswer::where('test_result_id', $scProTestResult->id)->get();
+                        $answeredQuestionIds = $scProAnswers->pluck('question_id')->unique()->values()->toArray();
 
-            // Map question_id => answer for pre-fill (give ans): frontend can show SC Pro answers for same question IDs
-            $scProAnswersByQuestionId = [];
-            foreach ($scProAnswers as $ua) {
-                $scProAnswersByQuestionId[$ua->question_id] = [
-                    'question_id' => $ua->question_id,
-                    'answer_value' => $ua->answer_value,
-                    'final_score' => $ua->final_score ?? null,
-                ];
-            }
+                        // Map question_id => answer for pre-fill (give ans): frontend can show SC Pro answers for same question IDs
+                        $scProAnswersByQuestionId = [];
+                        foreach ($scProAnswers as $ua) {
+                            $scProAnswersByQuestionId[$ua->question_id] = [
+                                'question_id' => $ua->question_id,
+                                'answer_value' => $ua->answer_value,
+                                'final_score' => $ua->final_score ?? null,
+                            ];
+                        }
 
-            // Filter out questions already answered in SC Pro (by question_id only)
-            if (!empty($answeredQuestionIds)) {
-                $originalCount = $selectedQuestions->count();
-                $selectedQuestions = $selectedQuestions->filter(function ($question) use ($answeredQuestionIds) {
-                    return !in_array($question->id, $answeredQuestionIds);
-                })->values();
-                \Log::info('CERC Test Question Filtering (by question_id only)', [
-                    'cerc_test_id' => $test->id,
-                    'sc_pro_test_id' => $scProTest->id,
-                    'user_id' => $userId,
-                    'answered_question_ids' => $answeredQuestionIds,
-                    'original_count' => $originalCount,
-                    'filtered_count' => $selectedQuestions->count(),
-                ]);
+                        // Filter out questions already answered in SC Pro (by question_id only)
+                        if (!empty($answeredQuestionIds)) {
+                            $originalCount = $selectedQuestions->count();
+                            $selectedQuestions = $selectedQuestions->filter(function ($question) use ($answeredQuestionIds) {
+                                return !in_array($question->id, $answeredQuestionIds);
+                            })->values();
+                            \Log::info('CERC Test Question Filtering (by question_id only)', [
+                                'cerc_test_id' => $test->id,
+                                'sc_pro_test_id' => $scProTest->id,
+                                'user_id' => $userId,
+                                'answered_question_ids' => $answeredQuestionIds,
+                                'original_count' => $originalCount,
+                                'filtered_count' => $selectedQuestions->count(),
+                            ]);
+                        }
+                    }
+                }
             }
         }
 

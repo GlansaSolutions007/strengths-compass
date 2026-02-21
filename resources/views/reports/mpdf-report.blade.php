@@ -213,9 +213,9 @@ body {
 }
 
 .band-low {
-    background-color: #fecaca;
-    color: #991b1b;
-    border-left: 4px solid #dc2626;
+    background-color: #e8ecf1;
+    color: #374151;
+    border-left: 4px solid #6b7280;
 }
 
 .band-medium {
@@ -258,12 +258,39 @@ body {
 
 /* ---------------- TENDENCY ---------------- */
 .tendency-box {
-    background: #eef2ff;
-    background-image: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
-    border-left: 4px solid #667eea;
     border-radius: 6px;
     padding: 8px 10px;
     margin-top: 8px;
+}
+
+.tendency-box-high {
+    background: #d4f8e8;
+    background-image: linear-gradient(135deg, #d4f8e8 0%, #c6f6d5 100%);
+    border-left: 4px solid #059669;
+}
+
+.tendency-box-high .tendency-label {
+    color: #065f46;
+}
+
+.tendency-box-medium {
+    background: #fef5d4;
+    background-image: linear-gradient(135deg, #fef5d4 0%, #fef3c7 100%);
+    border-left: 4px solid #d97706;
+}
+
+.tendency-box-medium .tendency-label {
+    color: #92400e;
+}
+
+.tendency-box-low {
+    background: #e8ecf1;
+    background-image: linear-gradient(135deg, #e8ecf1 0%, #e5e7eb 100%);
+    border-left: 4px solid #6b7280;
+}
+
+.tendency-box-low .tendency-label {
+    color: #374151;
 }
 
 .tendency-label {
@@ -272,7 +299,6 @@ body {
     margin-bottom: 5px;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #667eea;
 }
 
 .tendency-text {
@@ -686,7 +712,7 @@ body {
             @endif
 
             @if(isset($data['behaviour']))
-                <div class="tendency-box">
+                <div class="tendency-box tendency-box-{{ strtolower($data['category'] ?? 'high') }}">
                     <div class="tendency-label">Your Tendency</div>
                     <div class="tendency-text">{{ $data['behaviour'] }}</div>
                 </div>
@@ -818,7 +844,7 @@ body {
                     @endif
 
                     @if(isset($data['behaviour']))
-                        <div class="tendency-box">
+                        <div class="tendency-box tendency-box-{{ strtolower($data['category'] ?? 'high') }}">
                             <div class="tendency-label">Your Tendency</div>
                             <div class="tendency-text">
                                 {{ $data['behaviour'] }}
