@@ -11,11 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('tests', function (Blueprint $table) {
+        Schema::create('experience_stages', function (Blueprint $table) {
             $table->id();
-            $table->string('title');
+
+            $table->string('stage_name', 100);
+            $table->integer('min_years');
+            $table->integer('max_years');
             $table->text('description')->nullable();
-            $table->boolean('is_active')->default(true);
+
             $table->timestamps();
         });
     }
@@ -25,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('tests');
+        Schema::dropIfExists('experience_stages');
     }
 };

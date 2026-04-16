@@ -16,6 +16,9 @@ use App\Http\Controllers\Api\SchoolController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\LanguageController;
 use App\Http\Controllers\Api\DatabaseController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\TeacherDataController;
+use App\Http\Controllers\Api\ExperienceStageController;
 use Illuminate\Support\Facades\Route;
 
 // ============================================
@@ -200,6 +203,29 @@ Route::get('languages/{id}', [LanguageController::class, 'show']);
 Route::put('languages/{id}', [LanguageController::class, 'update']);
 Route::delete('languages/{id}', [LanguageController::class, 'destroy']);
 Route::patch('languages/{id}/toggle-active', [LanguageController::class, 'toggleActive']);
+
+// Roles CRUD (public for now)
+Route::get('roles', [RoleController::class, 'index']);
+Route::post('roles', [RoleController::class, 'store']);
+Route::get('roles/{id}', [RoleController::class, 'show']);
+Route::put('roles/{id}', [RoleController::class, 'update']);
+Route::delete('roles/{id}', [RoleController::class, 'destroy']);
+Route::patch('roles/{id}/toggle-active', [RoleController::class, 'toggleActive']);
+
+// Teacher Data CRUD (public for now)
+Route::get('teacher-data', [TeacherDataController::class, 'index']);
+Route::post('teacher-data', [TeacherDataController::class, 'store']);
+Route::get('teacher-data/by-user/{userId}', [TeacherDataController::class, 'showByUser']);
+Route::get('teacher-data/{id}', [TeacherDataController::class, 'show']);
+Route::put('teacher-data/{id}', [TeacherDataController::class, 'update']);
+Route::delete('teacher-data/{id}', [TeacherDataController::class, 'destroy']);
+
+// Experience Stages CRUD (public for now)
+Route::get('experience-stages', [ExperienceStageController::class, 'index']);
+Route::post('experience-stages', [ExperienceStageController::class, 'store']);
+Route::get('experience-stages/{id}', [ExperienceStageController::class, 'show']);
+Route::put('experience-stages/{id}', [ExperienceStageController::class, 'update']);
+Route::delete('experience-stages/{id}', [ExperienceStageController::class, 'destroy']);
 
 // Database routes (Admin - should be protected in production)
 Route::get('database/download', [DatabaseController::class, 'downloadDatabase']); // Download database SQL backup

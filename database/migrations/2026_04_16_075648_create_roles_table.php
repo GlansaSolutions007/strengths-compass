@@ -11,8 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->foreignId('age_group_id')->nullable()->after('age')->constrained('age_groups')->onDelete('set null');
+        Schema::create('roles', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->unique();
+            $table->string('isActive')->default('1');
+            $table->timestamps();
         });
     }
 
@@ -21,9 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropForeign(['age_group_id']);
-            $table->dropColumn('age_group_id');
-        });
+        Schema::dropIfExists('roles');
     }
 };

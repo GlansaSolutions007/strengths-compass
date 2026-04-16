@@ -7,6 +7,7 @@ use App\Mail\WelcomeMail;
 use App\Mail\ForgotPasswordMail;
 use App\Models\User;
 use App\Models\AgeGroup;
+use App\Models\TeacherData;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -23,20 +24,22 @@ class AuthController extends Controller
      */
     public function register(Request $request)
     {
-        \Log::info("REGISTER METHOD HIT");
-        $role = $request->input('role', 'user');
-        
+        // \Log::info("REGISTER METHOD HIT");
+        $role = $request->input('role');
+
+
         // Base validation rules (common for all)
         $rules = [
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
-            'role' => 'sometimes|in:admin,user',
+            'role' => 'sometimes|string|max:255',
         ];
+
 
         // Admin-specific validation
         if ($role === 'admin') {
             $rules['name'] = 'required|string|max:255';
-        } 
+        }
         // Regular user validation
         else {
             $rules['first_name'] = 'required|string|max:255';
@@ -50,6 +53,20 @@ class AuthController extends Controller
             $rules['gender'] = 'required|in:male,female,other,prefer_not_to_say';
             $rules['age'] = 'required|integer|min:1|max:150';
             $rules['educational_qualification'] = 'required|string|max:255';
+            // $rules['role'] = 'required|string|max:255'; // Ensure role is valid for regular users
+        }
+
+        // Teacher-specific validation
+        if ($role === 'teacher') {
+            $rules['tch_teaching_subject'] = 'required|string|max:255';
+            $rules['tch_teaching_level'] = 'required|string|max:255';
+            $rules['tch_years_of_experience'] = 'required|integer|min:0';
+            $rules['tch_current_role'] = 'required|string|max:255';
+            $rules['tch_school_context'] = 'required|string|max:255';
+            $rules['tch_school_name'] = 'required|string|max:255';
+            $rules['tch_school_city'] = 'required|string|max:255';
+            $rules['tch_school_state'] = 'required|string|max:255';
+            $rules['tch_consent'] = 'required|boolean';
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -70,10 +87,12 @@ class AuthController extends Controller
             'role' => $role,
         ];
 
+
         if ($role === 'admin') {
             // Admin fields
             $userData['name'] = $request->name;
         } else {
+
             // Regular user fields
             $userData['first_name'] = $request->first_name;
             $userData['last_name'] = $request->last_name;
@@ -86,21 +105,46 @@ class AuthController extends Controller
             $userData['gender'] = $request->gender;
             $userData['age'] = $request->age;
             $userData['educational_qualification'] = $request->educational_qualification;
-            
+
+
             // Automatically assign age_group_id based on age
-            if ($request->age) {
-                $ageGroupId = $this->getAgeGroupIdByAge($request->age);
-                if ($ageGroupId) {
-                    $userData['age_group_id'] = $ageGroupId;
+
+            if ($request->role === 'teacher') {
+                $userData['age_group_id'] = 6; // Assign to "Teachers" age group
+            } else {
+
+                if ($request->age) {
+                    $ageGroupId = $this->getAgeGroupIdByAge($request->age);
+                    if ($ageGroupId) {
+                        $userData['age_group_id'] = $ageGroupId;
+                    }
                 }
             }
-            
+
             // Set name as combination of first_name and last_name for backward compatibility
             $userData['name'] = trim($request->first_name . ' ' . $request->last_name);
+            
+        }
+        // print_r($userData);
+        //     // exit();
+        $user = User::create($userData);
+
+        // Insert teacher-specific data after user creation
+        if ($role === 'teacher') {
+            TeacherData::create([
+                'tch_user_id'             => $user->id,
+                'tch_teaching_subject'    => "Maths",
+                'tch_teaching_level'      => "college",
+                'tch_years_of_experience' => 4,
+                'tch_current_role'        => "HOD",
+                'tch_school_context'      => "Government School",
+                'tch_school_name'         => "All Schools",
+                'tch_school_city'         => $request->city,
+                'tch_school_state'        => $request->state,
+                'tch_consent'             => true,
+            ]);
         }
 
-        $user = User::create($userData);
-        
         // Refresh user to ensure all attributes are loaded
         $user->refresh();
 
@@ -113,7 +157,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'name' => $user->name ?? 'N/A',
             ]);
-            
+
             // Validate email exists
             if (empty($user->email)) {
                 \Log::warning('Cannot send welcome email: user email is empty', ['user_id' => $user->id]);
@@ -131,13 +175,13 @@ class AuthController extends Controller
                     ]);
                     throw $viewError;
                 }
-                
+
                 // Send email synchronously (not queued)
                 \Log::info('Attempting to send welcome email via Mail::send()', [
                     'user_id' => $user->id,
                     'email' => $user->email,
                 ]);
-                
+
                 // Try sending with WelcomeMail mailable first
                 try {
                     Mail::to($user->email)->send(new WelcomeMail($user));
@@ -150,13 +194,13 @@ class AuthController extends Controller
                     \Log::warning('WelcomeMail failed, trying Mail::raw fallback', [
                         'error' => $mailError->getMessage(),
                     ]);
-                    
+
                     $userName = $user->name ?? $user->first_name ?? 'there';
                     Mail::raw("Hello {$userName},\n\nWelcome to Strengths Compass! Your account has been successfully created.\n\nBest regards,\nThe Strengths Compass Team", function ($message) use ($user) {
                         $message->to($user->email)
-                                ->subject('Welcome to Strengths Compass!');
+                            ->subject('Welcome to Strengths Compass!');
                     });
-                    
+
                     \Log::info('=== REGISTRATION: Welcome email sent successfully via Mail::raw fallback ===', [
                         'user_id' => $user->id,
                         'email' => $user->email,
@@ -182,7 +226,7 @@ class AuthController extends Controller
         // Set age group in session based on user role
         $ageGroupId = null;
         $ageGroup = null;
-        
+
         if ($role === 'user' && $user->age) {
             // For regular users, automatically determine age group from their age
             $ageGroupId = $this->getAgeGroupIdByAge($user->age);
@@ -191,6 +235,8 @@ class AuthController extends Controller
                 session()->save(); // Ensure session is saved
                 $ageGroup = AgeGroup::find($ageGroupId);
             }
+        } elseif ($role === 'teacher') {
+            $ageGroupId = 6;
         }
         // For admin, age group will be set manually via the set-age-group endpoint
 
@@ -243,7 +289,7 @@ class AuthController extends Controller
         // Set age group in session based on user role
         $ageGroupId = null;
         $ageGroup = null;
-        
+
         if ($user->role === 'user' && $user->age) {
             // For regular users, automatically determine age group from their age
             $ageGroupId = $this->getAgeGroupIdByAge($user->age);
@@ -285,7 +331,7 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
-        
+
         // Clear age group from session on logout
         session()->forget('selected_age_group_id');
 
@@ -308,7 +354,7 @@ class AuthController extends Controller
         // If no user from middleware, try to authenticate manually using bearer token
         if (!$user) {
             $token = $request->bearerToken();
-            
+
             if (!$token) {
                 return response()->json([
                     'data' => [],
@@ -319,7 +365,7 @@ class AuthController extends Controller
 
             // Find the token and get the user
             $accessToken = PersonalAccessToken::findToken($token);
-            
+
             if (!$accessToken) {
                 return response()->json([
                     'data' => [],
@@ -329,7 +375,7 @@ class AuthController extends Controller
             }
 
             $user = $accessToken->tokenable;
-            
+
             if (!$user) {
                 return response()->json([
                     'data' => [],
@@ -482,7 +528,7 @@ class AuthController extends Controller
         $passwordResets = DB::table('password_reset_tokens')
             ->where('created_at', '>=', now()->subMinutes(60))
             ->get();
-        
+
         $passwordReset = null;
 
         foreach ($passwordResets as $reset) {
@@ -571,7 +617,7 @@ class AuthController extends Controller
         // If no user from middleware, try to authenticate manually using bearer token
         if (!$user) {
             $token = $request->bearerToken();
-            
+
             if (!$token) {
                 return response()->json([
                     'data' => [],
@@ -581,7 +627,7 @@ class AuthController extends Controller
             }
 
             $accessToken = PersonalAccessToken::findToken($token);
-            
+
             if (!$accessToken) {
                 return response()->json([
                     'data' => [],
@@ -591,7 +637,7 @@ class AuthController extends Controller
             }
 
             $user = $accessToken->tokenable;
-            
+
             if (!$user) {
                 return response()->json([
                     'data' => [],
@@ -627,7 +673,7 @@ class AuthController extends Controller
             }
 
             $userAgeGroupId = $this->getAgeGroupIdByAge($user->age);
-            
+
             if ($ageGroupId != $userAgeGroupId) {
                 return response()->json([
                     'data' => [],
@@ -671,7 +717,7 @@ class AuthController extends Controller
         // If no user from middleware, try to authenticate manually using bearer token
         if (!$user) {
             $token = $request->bearerToken();
-            
+
             if (!$token) {
                 return response()->json([
                     'data' => [],
@@ -681,7 +727,7 @@ class AuthController extends Controller
             }
 
             $accessToken = PersonalAccessToken::findToken($token);
-            
+
             if (!$accessToken) {
                 return response()->json([
                     'data' => [],
@@ -691,7 +737,7 @@ class AuthController extends Controller
             }
 
             $user = $accessToken->tokenable;
-            
+
             if (!$user) {
                 return response()->json([
                     'data' => [],
@@ -728,6 +774,3 @@ class AuthController extends Controller
         ], 200);
     }
 }
-
-
-
