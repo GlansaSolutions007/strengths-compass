@@ -46,8 +46,8 @@ class AuthController extends Controller
             $rules['last_name'] = 'required|string|max:255';
             $rules['whatsapp_number'] = 'required|string|max:20';
             $rules['contact_number'] = 'required|string|max:20';
-            $rules['city'] = 'required|string|max:255';
-            $rules['state'] = 'required|string|max:255';
+            $rules['city'] = 'nullable|string|max:255';
+            $rules['state'] = 'nullable|string|max:255';
             $rules['country'] = 'required|string|max:255';
             $rules['profession'] = 'required|string|max:255';
             $rules['gender'] = 'required|in:male,female,other,prefer_not_to_say';
@@ -133,15 +133,15 @@ class AuthController extends Controller
         if ($role === 'teacher') {
             TeacherData::create([
                 'tch_user_id'             => $user->id,
-                'tch_teaching_subject'    => "Maths",
-                'tch_teaching_level'      => "college",
-                'tch_years_of_experience' => 4,
-                'tch_current_role'        => "HOD",
-                'tch_school_context'      => "Government School",
-                'tch_school_name'         => "All Schools",
-                'tch_school_city'         => $request->city,
-                'tch_school_state'        => $request->state,
-                'tch_consent'             => true,
+                'tch_teaching_subject'    => $request->tch_teaching_subject,
+                'tch_teaching_level'      => $request->tch_teaching_level,
+                'tch_years_of_experience' => $request->tch_years_of_experience,
+                'tch_current_role'        => $request->tch_current_role,
+                'tch_school_context'      => $request->tch_school_context,
+                'tch_school_name'         => $request->tch_school_name,
+                'tch_school_city'         => $request->tch_school_city,
+                'tch_school_state'        => $request->tch_school_state,
+                'tch_consent'             => $request->tch_consent,
             ]);
         }
 
