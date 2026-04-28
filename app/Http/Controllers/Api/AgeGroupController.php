@@ -14,16 +14,21 @@ class AgeGroupController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         $query = AgeGroup::query();
 
         // Filter by is_active if provided
-        if (request()->has('is_active')) {
-            $query->where('is_active', filter_var(request('is_active'), FILTER_VALIDATE_BOOLEAN));
+        if ($request->has('is_active')) {
+            $query->where('is_active', filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN));
         }
 
-        $ageGroups = $query->orderBy('from')->get();
+        $roleId = $request->input('role_id', $request->input('role'));
+        if ($roleId !== null && $roleId !== '') {
+            $query->where('role', $roleId);
+        }
+
+        $ageGroups = $query->orderBy('role')->orderBy('from')->get();
 
         return response()->json([
             'status' => true,
@@ -39,6 +44,8 @@ class AgeGroupController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'role' => 'sometimes|nullable|integer|min:1',
+            'role_id' => 'sometimes|nullable|integer|min:1',
             'from' => 'required|integer|min:0',
             'to' => 'required|integer|min:0|gte:from',
             'description' => 'nullable|string',
@@ -53,14 +60,50 @@ class AgeGroupController extends Controller
             ], 422);
         }
 
-        $ageGroup = AgeGroup::create($request->only([
+        $data = $request->only([
             'name', 'from', 'to', 'description', 'is_active'
-        ]));
+        ]);
+        $data['role'] = $request->input('role_id', $request->input('role', AgeGroup::DEFAULT_ROLE_ID));
+
+        $ageGroup = AgeGroup::create($data);
 
         return response()->json([
             'status' => true,
             'message' => 'Age group created successfully',
             'data' => $ageGroup
+        ], 201);
+    }
+
+    /**
+     * Create the standard four age groups for a role.
+     */
+    public function storeDefaults(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'role' => 'sometimes|nullable|integer|min:1',
+            'role_id' => 'sometimes|nullable|integer|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+                'message' => 'Validation failed'
+            ], 422);
+        }
+
+        $roleId = (int) $request->input('role_id', $request->input('role', AgeGroup::DEFAULT_ROLE_ID));
+        $ageGroups = AgeGroup::createDefaultGroupsForRole($roleId);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Default age groups created successfully',
+            'data' => $ageGroups,
+            'summary' => [
+                'role' => $roleId,
+                'total' => count($ageGroups),
+                'created' => collect($ageGroups)->where('wasRecentlyCreated', true)->count(),
+            ],
         ], 201);
     }
 
@@ -101,6 +144,8 @@ class AgeGroupController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
+            'role' => 'sometimes|nullable|integer|min:1',
+            'role_id' => 'sometimes|nullable|integer|min:1',
             'from' => 'sometimes|required|integer|min:0',
             'to' => 'sometimes|required|integer|min:0|gte:from',
             'description' => 'nullable|string',
@@ -115,9 +160,14 @@ class AgeGroupController extends Controller
             ], 422);
         }
 
-        $ageGroup->update($request->only([
+        $data = $request->only([
             'name', 'from', 'to', 'description', 'is_active'
-        ]));
+        ]);
+        if ($request->has('role') || $request->has('role_id')) {
+            $data['role'] = $request->input('role_id', $request->input('role'));
+        }
+
+        $ageGroup->update($data);
 
         return response()->json([
             'status' => true,

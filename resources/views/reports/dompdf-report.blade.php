@@ -312,6 +312,10 @@ body {
             <div class="description-box">
                 <div class="test-report-item-text">{{ $data['description'] }}</div>
             </div>
+            <div class="test-report-item-label">Career Stage Insights</div>
+            <div class="description-box">
+                <div class="test-report-item-text">{{ $data['experience_stage_description'] }}</div>
+            </div>
 
             <div class="tendency-box">
                 <div class="tendency-label">Your Tendency</div>

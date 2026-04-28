@@ -8,12 +8,15 @@ use App\Models\TestReport;
 use App\Models\Test;
 use App\Models\UserAnswer;
 use App\Models\Construct;
+use App\Models\ExperienceStage;
+use App\Models\TeacherData;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Mpdf\Mpdf;
 use Mpdf\Config\ConfigVariables;
@@ -44,7 +47,7 @@ class ReportController extends Controller
 
         // Get or create report
         $report = $testResult->report;
-        
+
         if (!$report) {
             // Create a new report record with default summary
             $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
@@ -133,7 +136,7 @@ class ReportController extends Controller
 
         // Get or create report
         $report = $testResult->report;
-        
+
         if (!$report) {
             $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
@@ -161,9 +164,9 @@ class ReportController extends Controller
         $logoBase64 = $this->getLogoBase64();
 
         // Get user name for filename
-        $userName = $testResult->user->name ?? 
-                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                   'user';
+        $userName = $testResult->user->name ??
+            trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+            'user';
 
         // Calculate SDB scores
         $sdbScores = $this->calculateSDBScores($testResult);
@@ -255,7 +258,7 @@ class ReportController extends Controller
 
         // Get or create report
         $report = $testResult->report;
-        
+
         if (!$report) {
             $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
@@ -283,9 +286,9 @@ class ReportController extends Controller
         $logoBase64 = $this->getLogoBase64();
 
         // Get user name for filename
-        $userName = $testResult->user->name ?? 
-                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                   'user';
+        $userName = $testResult->user->name ??
+            trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+            'user';
 
         // Calculate SDB scores
         $sdbScores = $this->calculateSDBScores($testResult);
@@ -348,7 +351,6 @@ class ReportController extends Controller
             // Full report: Disclaimer in page footer (Report Summary pages only - controlled via htmlpagefooter in blade)
             // Write HTML content
             $mpdf->WriteHTML($html);
-
         } catch (\Exception $e) {
             return response()->json([
                 'data' => [],
@@ -407,7 +409,7 @@ class ReportController extends Controller
 
         // Get or create report
         $report = $testResult->report;
-        
+
         if (!$report) {
             $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
@@ -433,9 +435,9 @@ class ReportController extends Controller
         $logoBase64 = $this->getLogoBase64();
 
         // Get user name for filename
-        $userName = $testResult->user->name ?? 
-                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                   'user';
+        $userName = $testResult->user->name ??
+            trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+            'user';
 
         // Calculate SDB scores
         $sdbScores = $this->calculateSDBScores($testResult);
@@ -490,7 +492,6 @@ class ReportController extends Controller
             // Short report: Disclaimer in page footer (Report Summary pages only - controlled via htmlpagefooter in blade)
             // Write HTML content
             $mpdf->WriteHTML($html);
-
         } catch (\Exception $e) {
             return response()->json([
                 'data' => [],
@@ -749,7 +750,7 @@ class ReportController extends Controller
             $mpdf->WriteHTML($html);
             $pdfOutput = $mpdf->Output('', 'S');
         } catch (\Exception $e) {
-            \Log::error('Bulk report PDF generation failed', ['test_result_id' => $testResult->id, 'error' => $e->getMessage()]);
+            Log::error('Bulk report PDF generation failed', ['test_result_id' => $testResult->id, 'error' => $e->getMessage()]);
             return null;
         }
 
@@ -781,7 +782,7 @@ class ReportController extends Controller
 
         // Get or create report
         $report = $testResult->report;
-        
+
         if (!$report) {
             $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
             $report = TestReport::create([
@@ -880,14 +881,14 @@ class ReportController extends Controller
             // Handle base64 encoded PDF
             elseif ($request->has('pdf_base64')) {
                 $base64String = $request->input('pdf_base64');
-                
+
                 // Remove data URL prefix if present (data:application/pdf;base64,)
                 if (strpos($base64String, ',') !== false) {
                     $base64String = explode(',', $base64String)[1];
                 }
-                
+
                 $pdfContent = base64_decode($base64String);
-                
+
                 // Validate it's actually a PDF
                 if (substr($pdfContent, 0, 4) !== '%PDF') {
                     return response()->json([
@@ -914,7 +915,7 @@ class ReportController extends Controller
 
             // Get or create report
             $report = $testResult->report;
-            
+
             if (!$report) {
                 $defaultSummary = $this->generateDefaultSummary($testResult->user, $testResult->test);
                 $report = TestReport::create([
@@ -954,7 +955,6 @@ class ReportController extends Controller
                 'status' => 200,
                 'message' => 'PDF stored successfully',
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'data' => [],
@@ -992,12 +992,12 @@ class ReportController extends Controller
             foreach ($constructDetails as $construct) {
                 $constructName = $construct['name'];
                 $constructScore = $testResult->construct_scores[$constructName] ?? null;
-                
+
                 if ($constructScore !== null) {
                     $average = is_array($constructScore) ? ($constructScore['average'] ?? 0) : (float) $constructScore;
                     $percentage = $this->convertScoreToPercentage($average);
                     $band = $this->getStrengthCategory($percentage);
-                    
+
                     $constructScoresWithBands[] = array_merge($construct, [
                         'percentage' => $percentage,
                         'band' => $band,
@@ -1332,7 +1332,7 @@ class ReportController extends Controller
     private function enrichClusterScores(TestResult $testResult): array
     {
         $clusterScores = $testResult->cluster_scores ?? [];
-        
+
         if (empty($clusterScores) || !is_array($clusterScores)) {
             return [];
         }
@@ -1344,7 +1344,7 @@ class ReportController extends Controller
         // Build a lookup map of cluster details by name
         $clusterDetailsMap = [];
         $clusters = $testResult->test->clusters ?? collect();
-        
+
         foreach ($clusters as $cluster) {
             $clusterDetailsMap[$cluster->name] = [
                 'description' => $cluster->description,
@@ -1409,8 +1409,11 @@ class ReportController extends Controller
      */
     private function enrichConstructScores(TestResult $testResult): array
     {
+        $user_role = $testResult->user->role ?? null;
+        $user_id = $testResult->user_id ?? null;
+
         $constructScores = $testResult->construct_scores ?? [];
-        
+
         if (empty($constructScores) || !is_array($constructScores)) {
             return [];
         }
@@ -1419,57 +1422,78 @@ class ReportController extends Controller
             return $constructScores;
         }
 
-        // Build a lookup map of construct details by name (test-specific cluster via test_cluster_construct)
         $constructDetailsMap = [];
         $test = $testResult->test;
+
+        // Fetch pivot rows
         $pivotRows = DB::table('test_cluster_construct')
             ->where('test_id', $test->id)
             ->get();
 
         if ($pivotRows->isNotEmpty()) {
+
             $constructIds = $pivotRows->pluck('construct_id')->unique()->all();
-            $clusterIds = $pivotRows->pluck('cluster_id')->unique()->all();
-            $constructs = Construct::whereIn('id', $constructIds)->get()->keyBy('id');
+
+            $constructs = Construct::whereIn('id', $constructIds)
+                ->get()
+                ->keyBy('id');
+
             $clusters = $test->clusters->keyBy('id');
+
             foreach ($pivotRows as $row) {
                 $construct = $constructs->get($row->construct_id);
-                $cluster = $clusters->get($row->cluster_id);
+                $cluster   = $clusters->get($row->cluster_id);
+
                 if ($construct && $cluster) {
                     $constructDetailsMap[$construct->name] = [
-                        'description' => $construct->description ?? $construct->definition,
-                        'high_behavior' => $construct->high_behavior,
+                        'construct_id'   => $construct->id,
+                        'description'    => $construct->description ?? $construct->definition,
+                        'high_behavior'  => $construct->high_behavior,
                         'medium_behavior' => $construct->medium_behavior,
-                        'low_behavior' => $construct->low_behavior,
-                        'cluster_name' => $cluster->name,
+                        'low_behavior'   => $construct->low_behavior,
+                        'cluster_name'   => $cluster->name,
                     ];
                 }
             }
         } else {
-            // Legacy: from test->clusters->constructs
+
+            // Legacy fallback
             $clusters = $test->clusters ?? collect();
+
             foreach ($clusters as $cluster) {
                 $constructs = $cluster->constructs ?? collect();
+
                 foreach ($constructs as $construct) {
                     $constructDetailsMap[$construct->name] = [
-                        'description' => $construct->description ?? $construct->definition,
-                        'high_behavior' => $construct->high_behavior,
+                        'construct_id'   => $construct->id,
+                        'description'    => $construct->description ?? $construct->definition,
+                        'high_behavior'  => $construct->high_behavior,
                         'medium_behavior' => $construct->medium_behavior,
-                        'low_behavior' => $construct->low_behavior,
-                        'cluster_name' => $cluster->name,
+                        'low_behavior'   => $construct->low_behavior,
+                        'cluster_name'   => $cluster->name,
                     ];
                 }
             }
         }
 
-        // Enrich each construct score (use stored percentage and category for exact consistency with result/Excel)
         $enriched = [];
+
         foreach ($constructScores as $constructName => $scoreData) {
+
             $constructInfo = $constructDetailsMap[$constructName] ?? null;
 
             if (is_array($scoreData)) {
+
                 $average = $scoreData['average'] ?? 0;
-                $percentage = isset($scoreData['percentage']) ? (float) $scoreData['percentage'] : $this->convertScoreToPercentage($average);
-                $category = isset($scoreData['category']) ? strtolower($scoreData['category']) : strtolower($this->getStrengthCategory((int) round($percentage)));
+
+                $percentage = isset($scoreData['percentage'])
+                    ? (float) $scoreData['percentage']
+                    : $this->convertScoreToPercentage($average);
+
+                $category = isset($scoreData['category'])
+                    ? strtolower($scoreData['category'])
+                    : strtolower($this->getStrengthCategory((int) round($percentage)));
+
                 $behaviour = null;
 
                 if ($constructInfo) {
@@ -1477,28 +1501,56 @@ class ReportController extends Controller
                         case 'high':
                             $behaviour = $constructInfo['high_behavior'];
                             break;
+
                         case 'medium':
                             $behaviour = $constructInfo['medium_behavior'];
                             break;
+
                         case 'low':
                             $behaviour = $constructInfo['low_behavior'];
                             break;
                     }
                 }
 
-                $enriched[$constructName] = array_merge($scoreData, [
-                    'category' => $category,
-                    'description' => $constructInfo['description'] ?? null,
-                    'behaviour' => $behaviour,
-                    'cluster_name' => $constructInfo['cluster_name'] ?? null,
-                    'percentage' => $percentage,
-                ]);
+                if ($user_role !== 'teacher') {
+                    $enriched[$constructName] = array_merge($scoreData, [
+                        'constructId' => $constructInfo['construct_id'] ?? null,
+                        'category'    => $category,
+                        'description' => $constructInfo['description'] ?? null,
+                        'behaviour'   => $behaviour,
+                        'cluster_name' => $constructInfo['cluster_name'] ?? null,
+                        'percentage'  => $percentage,
+                    ]);
+                } else {
+
+                    $getTeachersData = TeacherData::where('tch_user_id', $user_id)->first();
+
+                    $experience = $getTeachersData?->tch_years_of_experience;
+
+                    $getExpStage = ExperienceStage::where('construct_id', $constructInfo['construct_id'] ?? null)
+                        ->where('min_years', '<=', $experience && $experience >= 'max_years')
+                        ->first();
+
+                    $experience_stage_description = $getExpStage?->description;
+
+                    $enriched[$constructName] = array_merge($scoreData, [
+                        'constructId' => $constructInfo['construct_id'] ?? null,
+                        'category'    => $category,
+                        'description' => $constructInfo['description'] ?? null,
+                        'experience_stage_description' => $experience_stage_description,
+                        'behaviour'   => $behaviour,
+                        'cluster_name' => $constructInfo['cluster_name'] ?? null,
+                        'percentage'  => $percentage,
+                    ]);
+                }
             } else {
-                // If score is not an array, keep it as is but add description if available
+
                 $enriched[$constructName] = $scoreData;
+
                 if ($constructInfo) {
                     $enriched[$constructName] = [
-                        'value' => $scoreData,
+                        'value'       => $scoreData,
+                        'constructId' => $constructInfo['construct_id'] ?? null,
                         'description' => $constructInfo['description'] ?? null,
                         'cluster_name' => $constructInfo['cluster_name'] ?? null,
                     ];
@@ -1558,9 +1610,9 @@ class ReportController extends Controller
         $logoBase64 = $this->getLogoBase64();
 
         // Get user name for filename
-        $userName = $testResult->user->name ?? 
-                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                   'user';
+        $userName = $testResult->user->name ??
+            trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+            'user';
 
         // Calculate SDB scores
         $sdbScores = $this->calculateSDBScores($testResult);
@@ -1582,7 +1634,7 @@ class ReportController extends Controller
             'logoBase64'                 => $logoBase64,
             'radarClusterChartBase64'    => $radarClusterSvg,
             'radarConstructChartBase64'  => $radarConstructSvg,
-            
+
             'sdbPercentage'              => $sdbPercentage,
         ];
 
@@ -1595,14 +1647,14 @@ class ReportController extends Controller
                 'reports.snappy-report',
                 $data
             )
-            ->setPaper('a4')
-            ->setOrientation('portrait')
-            ->setOption('encoding', 'UTF-8')
-            ->setOption('enable-local-file-access', true)
-            ->setOption('margin-top', '22mm')
-            ->setOption('margin-bottom', '22mm')
-            ->setOption('margin-left', '15mm')
-            ->setOption('margin-right', '15mm');
+                ->setPaper('a4')
+                ->setOrientation('portrait')
+                ->setOption('encoding', 'UTF-8')
+                ->setOption('enable-local-file-access', true)
+                ->setOption('margin-top', '22mm')
+                ->setOption('margin-bottom', '22mm')
+                ->setOption('margin-left', '15mm')
+                ->setOption('margin-right', '15mm');
 
             /* ---------- HEADER (EVERY PAGE EXCEPT FIRST) ---------- */
             $headerHtml = '';
@@ -1646,9 +1698,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $pdf->setOption('footer-spacing', 5);
 
             // Create filename with user name and source (CERC / SC-Pro) for recognition
-            $userName = $testResult->user->name ?? 
-                       trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                       'user';
+            $userName = $testResult->user->name ??
+                trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+                'user';
             $sanitizedUserName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $userName);
             $sourceSlug = $this->getReportSourceSlug($testResult);
             $filename = 'axis-strengths-compass-report-' . $sanitizedUserName . '-' . $testResult->id . '-' . $sourceSlug . '.pdf';
@@ -1663,8 +1715,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
 
             return response($output, 200)
                 ->header('Content-Type', 'application/pdf')
-                ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
-
+                ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
         } catch (\Exception $e) {
             \Log::error('Snappy PDF error', [
                 'error' => $e->getMessage()
@@ -1700,7 +1751,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     //         $percentage = is_array($data)
     //             ? ($data['percentage'] ?? 0)
     //             : (float) $data;
-            
+
     //         // Format label with score below name (using special formatting for styling)
     //         // Chart.js will render this, but we'll style it in the pointLabels config
     //         $labels[] = $name . "\n" . round($percentage) . "%";
@@ -1814,19 +1865,19 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     //     if (empty($scores)) {
     //         return null;
     //     }
-    
+
     //     $labels = [];
     //     $values = [];
-    
+
     //     foreach ($scores as $name => $data) {
     //         $percentage = is_array($data)
     //             ? ($data['percentage'] ?? 0)
     //             : (float) $data;
-    
+
     //         $labels[] = $name;
     //         $values[] = round($percentage);
     //     }
-    
+
     //     $chartConfig = [
     //         'type' => 'radar',
     //         'data' => [
@@ -1859,18 +1910,18 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     //                     'min' => 0,
     //                     'max' => 100,
     //                     'bounds' => 'ticks', // ⭐ THIS STOPS AUTO-ZOOM
-    
+
     //                     'grid' => [
     //                         'circular' => true,
     //                         'color' => 'rgba(0,0,0,0.12)',
     //                         'lineWidth' => 1.5
     //                     ],
-    
+
     //                     'angleLines' => [
     //                         'color' => 'rgba(0,0,0,0.12)',
     //                         'lineWidth' => 1.5
     //                     ],
-    
+
     //                     // 🔥 FORCE EXACT TICKS
     //                     'ticks' => [
     //                         'stepSize' => 20,
@@ -1884,7 +1935,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     //                         ],
     //                         'callback' => "function(value) { return value; }"
     //                     ],
-    
+
     //                     'pointLabels' => [
     //                         'font' => [
     //                             'size' => 16,
@@ -1905,7 +1956,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     //             ]
     //         ]
     //     ];
-    
+
     //     $response = Http::get('https://quickchart.io/chart', [
     //         'c' => json_encode($chartConfig),
     //         'width' => 700,
@@ -1913,11 +1964,11 @@ be influenced by context, mood, and self perception. Use them as a starting poin
     //         'format' => 'png',
     //         'backgroundColor' => 'white',
     //     ]);
-    
+
     //     if (!$response->successful()) {
     //         return null;
     //     }
-    
+
     //     return base64_encode($response->body());
     // }
 
@@ -1932,55 +1983,55 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         $radius      = 210;   // Slightly smaller radar
         $labelRadius = $radius + 75;
         $levels      = [0, 20, 40, 60, 80, 100];
-    
+
         /* ================================
            DATA PREP
            ================================ */
         $labels = array_keys($scores);
-    
+
         $values = array_map(function ($v) {
             if (is_array($v)) {
                 $v = $v['percentage'] ?? 0;
             }
             return (float) str_replace('%', '', (string) $v);
         }, array_values($scores));
-    
+
         $count = count($labels);
         $angleStep = (float) ((2 * pi()) / max((int) $count, 1));
-    
+
         /* ================================
            TEXT WRAP HELPER
            ================================ */
         $wrapLabel = function (string $text, int $maxChars = 18): array {
             return explode("\n", wordwrap($text, $maxChars, "\n", true));
         };
-    
+
         /* ================================
            SVG START
            ================================ */
         $svg = [];
         $svg[] = "<svg width='{$size}' height='{$size}' viewBox='0 0 {$size} {$size}' xmlns='http://www.w3.org/2000/svg'>";
-    
+
         /* ---------- GRID CIRCLES ---------- */
         foreach ($levels as $level) {
             $r = ($level / 100) * $radius;
             $svg[] = "<circle cx='{$center}' cy='{$center}' r='{$r}' fill='none' stroke='#e5e7eb' stroke-width='1'/>";
         }
-    
+
         /* ---------- AXES + LABELS ---------- */
         foreach ($labels as $i => $label) {
             $value = $values[$i];
             $angle = (-pi() / 2) + ($i * $angleStep);
-    
+
             // Axis line
             $x = $center + cos($angle) * $radius;
             $y = $center + sin($angle) * $radius;
             $svg[] = "<line x1='{$center}' y1='{$center}' x2='{$x}' y2='{$y}' stroke='#d1d5db'/>";
-    
+
             // Label position
             $lx = $center + cos($angle) * $labelRadius;
             $ly = $center + sin($angle) * $labelRadius;
-    
+
             // Smart alignment
             if (abs(cos($angle)) < 0.3) {
                 $anchor = 'middle';
@@ -1989,23 +2040,23 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             } else {
                 $anchor = 'end';
             }
-    
+
             // Wrap label text
             $lines = $wrapLabel($label, 18);
-    
+
             $svg[] = "<text x='{$lx}' y='{$ly}' text-anchor='{$anchor}' font-family='Arial, Helvetica, sans-serif'>";
-    
+
             $dy = 0;
             foreach ($lines as $line) {
                 $svg[] = "<tspan x='{$lx}' dy='{$dy}' font-size='14' font-weight='700' fill='#0f172a'>{$line}</tspan>";
                 $dy = 18;
             }
-    
+
             // Percentage
             $svg[] = "<tspan x='{$lx}' dy='18' font-size='13' font-weight='600' fill='#64748b'>{$value}%</tspan>";
             $svg[] = "</text>";
         }
-    
+
         /* ---------- SCORE POLYGON ---------- */
         $points = [];
         foreach ($values as $i => $value) {
@@ -2015,17 +2066,17 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $y = $center + sin($angle) * $r;
             $points[] = "{$x},{$y}";
         }
-    
+
         $svg[] = "<polygon points='" . implode(' ', $points) . "' fill='rgba(255,152,0,0.22)' stroke='rgba(255,152,0,1)' stroke-width='3'/>";
-    
+
         /* ---------- RADIAL TICK LABELS ---------- */
         foreach ($levels as $level) {
             $y = $center - ($level / 100) * $radius;
             $svg[] = "<text x='" . ($center + 12) . "' y='{$y}' font-size='12' fill='#6b7280'>{$level}</text>";
         }
-    
+
         $svg[] = "</svg>";
-    
+
         return implode('', $svg);
     }
 
@@ -2041,7 +2092,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         if (empty($scores)) {
             return '';
         }
-    
+
         /* ================================
            CONFIG (FOR MANY CONSTRUCTS)
            ================================ */
@@ -2049,36 +2100,36 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         $center      = 450;
         $radius      = 260;
         $labelRadius = $radius + 55;
-    
+
         $levels = [0, 20, 40, 60, 80, 100];
-    
+
         $labelFontSize = 10;
         $valueFontSize = 9;
-    
+
         /* ================================
            DATA PREP
            ================================ */
         $labels = array_keys($scores);
-    
+
         $values = array_map(function ($v) {
             if (is_array($v)) {
                 $v = $v['percentage'] ?? 0;
             }
             return (float) $v;
         }, array_values($scores));
-    
+
         $count = count($labels);
         $angleStep = (2 * pi()) / max($count, 1);
-    
+
         /* ================================
            SVG START
            ================================ */
         $svg = [];
-    
+
         // Start SVG with proper formatting for mPDF (no XML declaration when embedded in HTML)
         $svg[] = "<svg width='{$size}' height='{$size}' viewBox='0 0 {$size} {$size}' xmlns='http://www.w3.org/2000/svg' style='display:block;margin:0 auto;'>";
         $svg[] = "<rect x='0' y='0' width='{$size}' height='{$size}' fill='#ffffff'/>";
-    
+
         /* ---------- GRID CIRCLES ---------- */
         foreach ($levels as $level) {
             $r = ($level / 100) * $radius;
@@ -2087,25 +2138,25 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 $svg[] = "<circle cx='{$center}' cy='{$center}' r='{$rFormatted}' fill='none' stroke='#e5e7eb' stroke-width='1'/>";
             }
         }
-    
+
         /* ---------- AXES + LABELS ---------- */
         foreach ($labels as $i => $label) {
             $value = round($values[$i]);
             $angle = (-pi() / 2) + ($i * $angleStep);
-    
+
             // Axis line
             $x = $center + cos($angle) * $radius;
             $y = $center + sin($angle) * $radius;
             $xFormatted = number_format($x, 2, '.', '');
             $yFormatted = number_format($y, 2, '.', '');
             $svg[] = "<line x1='{$center}' y1='{$center}' x2='{$xFormatted}' y2='{$yFormatted}' stroke='#e5e7eb' stroke-width='1'/>";
-    
+
             // Label position
             $lx = $center + cos($angle) * $labelRadius;
             $ly = $center + sin($angle) * $labelRadius;
             $lxFormatted = number_format($lx, 2, '.', '');
             $lyFormatted = number_format($ly, 2, '.', '');
-    
+
             // Smart alignment
             if (abs(cos($angle)) < 0.3) {
                 $anchor = 'middle';
@@ -2114,27 +2165,27 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             } else {
                 $anchor = 'end';
             }
-    
+
             // Truncate long labels (IMPORTANT)
             $shortLabel = mb_strlen($label) > 18
                 ? mb_substr($label, 0, 18) . '…'
                 : $label;
-            
+
             // Escape HTML entities in label
             $shortLabelEscaped = htmlspecialchars($shortLabel, ENT_XML1 | ENT_QUOTES, 'UTF-8');
             $valueEscaped = htmlspecialchars($value . '%', ENT_XML1 | ENT_QUOTES, 'UTF-8');
-    
+
             // Calculate proper Y positions for text (SVG text uses baseline at y coordinate)
             $labelY = number_format($lyFormatted - 6, 2, '.', '');
             $valueY = number_format($lyFormatted + 8, 2, '.', '');
-            
+
             // Label text
             $svg[] = "<text x='{$lxFormatted}' y='{$labelY}' text-anchor='{$anchor}' font-family='DejaVu Sans, Arial, sans-serif' font-size='{$labelFontSize}' font-weight='bold' fill='#0f172a'>{$shortLabelEscaped}</text>";
-            
+
             // Percentage value
             $svg[] = "<text x='{$lxFormatted}' y='{$valueY}' text-anchor='{$anchor}' font-family='DejaVu Sans, Arial, sans-serif' font-size='{$valueFontSize}' font-weight='600' fill='#64748b'>{$valueEscaped}</text>";
         }
-    
+
         /* ---------- DATA POLYGON ---------- */
         $points = [];
         foreach ($values as $i => $value) {
@@ -2144,16 +2195,16 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $y = $center + sin($angle) * $r;
             $points[] = number_format($x, 2, '.', '') . ',' . number_format($y, 2, '.', '');
         }
-    
+
         // Close polygon (MANDATORY for mPDF)
         if (!empty($points)) {
             $points[] = $points[0];
             $pointsString = implode(' ', $points);
-            
+
             // Use hex colors with fill-opacity for mPDF compatibility
             $svg[] = "<polygon points='{$pointsString}' fill='#ff9800' fill-opacity='0.20' stroke='#ff9800' stroke-width='3'/>";
         }
-    
+
         /* ---------- POINT DOTS ---------- */
         foreach ($values as $i => $value) {
             $angle = (-pi() / 2) + ($i * $angleStep);
@@ -2162,10 +2213,10 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $y = $center + sin($angle) * $r;
             $xFormatted = number_format($x, 2, '.', '');
             $yFormatted = number_format($y, 2, '.', '');
-    
+
             $svg[] = "<circle cx='{$xFormatted}' cy='{$yFormatted}' r='4' fill='#ff9800' stroke='#ffffff' stroke-width='2'/>";
         }
-    
+
         /* ---------- RADIAL SCALE LABELS ---------- */
         foreach ($levels as $level) {
             if ($level > 0) { // Skip level 0 label as it's at the center
@@ -2175,12 +2226,12 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 $svg[] = "<text x='" . ($center + 10) . "' y='{$yFormatted}' font-size='11' fill='#6b7280' font-family='DejaVu Sans, Arial, sans-serif'>{$levelEscaped}</text>";
             }
         }
-    
+
         $svg[] = "</svg>";
-    
+
         return implode('', $svg);
     }
-    
+
 
 
 
@@ -2196,7 +2247,7 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             // Try to get logo from URL
             $logoUrl = 'https://assessments.axiscompass.co/assets/Logo-WBcOyAhZ.png';
             $response = Http::get($logoUrl);
-            
+
             if ($response->successful()) {
                 return base64_encode($response->body());
             }
@@ -2243,15 +2294,15 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         uasort($scores, function ($a, $b) use ($priorityOrder) {
             $categoryA = strtolower($a['category'] ?? 'low');
             $categoryB = strtolower($b['category'] ?? 'low');
-            
+
             $priorityA = $priorityOrder[$categoryA] ?? 99;
             $priorityB = $priorityOrder[$categoryB] ?? 99;
-            
+
             // First sort by priority
             if ($priorityA !== $priorityB) {
                 return $priorityA <=> $priorityB;
             }
-            
+
             // If same priority, maintain original order (or sort by name)
             return 0;
         });
@@ -2315,9 +2366,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
         $logoBase64 = $this->getLogoBase64();
 
         // Get user name for filename
-        $userName = $testResult->user->name ?? 
-                   trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                   'user';
+        $userName = $testResult->user->name ??
+            trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+            'user';
 
         // Calculate SDB scores
         $sdbScores = $this->calculateSDBScores($testResult);
@@ -2351,14 +2402,14 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 'reports.snappy-report',
                 $data
             )
-            ->setPaper('a4')
-            ->setOrientation('portrait')
-            ->setOption('encoding', 'UTF-8')
-            ->setOption('enable-local-file-access', true)
-            ->setOption('margin-top', '22mm')
-            ->setOption('margin-bottom', '22mm')
-            ->setOption('margin-left', '15mm')
-            ->setOption('margin-right', '15mm');
+                ->setPaper('a4')
+                ->setOrientation('portrait')
+                ->setOption('encoding', 'UTF-8')
+                ->setOption('enable-local-file-access', true)
+                ->setOption('margin-top', '22mm')
+                ->setOption('margin-bottom', '22mm')
+                ->setOption('margin-left', '15mm')
+                ->setOption('margin-right', '15mm');
 
             /* ---------- HEADER (EVERY PAGE EXCEPT FIRST) ---------- */
             $headerHtml = '';
@@ -2476,7 +2527,6 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                 'status' => 200,
                 'message' => 'Report sent successfully via email',
             ], 200);
-
         } catch (\Exception $e) {
             \Log::error('PDF Email error', [
                 'error' => $e->getMessage(),
@@ -2543,25 +2593,25 @@ be influenced by context, mood, and self perception. Use them as a starting poin
 
                 // Send email for this test result
                 $emailResult = $this->sendPdfEmailForTestResult($testResult, $pdfType);
-                
+
                 if ($emailResult['success']) {
                     // Refresh report to get updated email_sent_at
-                   // Reload the test result to get updated report relationship
+                    // Reload the test result to get updated report relationship
                     $testResult->load('report');
-                    
+
                     // Get email_sent_at safely
                     $emailSentAt = null;
                     if ($testResult->report) {
                         $testResult->report->refresh();
                         $emailSentAt = $testResult->report->email_sent_at ? $testResult->report->email_sent_at->toISOString() : null;
                     }
-                    
+
                     $results['success'][] = [
                         'test_result_id' => $testResult->id,
                         'user_id' => $testResult->user_id,
                         'user_email' => $testResult->user->email ?? null,
-                        'user_name' => $testResult->user->name ?? 
-                                     trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')),
+                        'user_name' => $testResult->user->name ??
+                            trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')),
                         'email_sent_at' => $testResult->report->email_sent_at ? $testResult->report->email_sent_at->toISOString() : null,
                         'message' => $emailResult['message'],
                     ];
@@ -2576,7 +2626,6 @@ be influenced by context, mood, and self perception. Use them as a starting poin
                     $results['failed_count']++;
                 }
                 $results['total']++;
-
             } catch (\Exception $e) {
                 \Log::error('Bulk PDF Email error for test result', [
                     'test_result_id' => $testResultId,
@@ -2651,9 +2700,9 @@ be influenced by context, mood, and self perception. Use them as a starting poin
             $logoBase64 = $this->getLogoBase64();
 
             // Get user name for filename
-            $userName = $testResult->user->name ?? 
-                       trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ?? 
-                       'user';
+            $userName = $testResult->user->name ??
+                trim(($testResult->user->first_name ?? '') . ' ' . ($testResult->user->last_name ?? '')) ??
+                'user';
 
             // Calculate SDB scores
             $sdbScores = $this->calculateSDBScores($testResult);
@@ -2835,7 +2884,6 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 'success' => true,
                 'message' => 'PDF report sent successfully to ' . $userEmail,
             ];
-
         } catch (\Exception $e) {
             \Log::error('PDF Email error for test result', [
                 'test_result_id' => $testResult->id,
@@ -2891,7 +2939,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
         $sdbQuestions = array_filter($questions, function ($question) {
             return isset($question['category']) && strtoupper($question['category']) === 'SDB';
         });
-        
+
         // Reset array keys to ensure sequential indexing
         $sdbQuestions = array_values($sdbQuestions);
 
@@ -2907,7 +2955,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
         // Sum all SDB answer values (not final_score, as SDB uses direct scoring)
         $sdbSum = 0;
         $sdbCount = 0;
-        
+
         foreach ($sdbQuestions as $question) {
             $answerValue = data_get($question, 'answer.answer_value');
             if ($answerValue !== null && is_numeric($answerValue)) {
@@ -2951,16 +2999,16 @@ or medical concerns, consult a qualified professional. For any queries regarding
         if ($meanScore <= 0) {
             return 0;
         }
-        
+
         // Step 1: Subtract 1
         $step1 = $meanScore - 1;
-        
+
         // Step 2: Divide by 4
         $step2 = $step1 / 4;
-        
+
         // Step 3: Convert to percentage and round
         $percentage = round($step2 * 100);
-        
+
         return max(0, min(100, (int) $percentage));
     }
 
@@ -3212,7 +3260,7 @@ or medical concerns, consult a qualified professional. For any queries regarding
 
         // Get CERC test result answers (new CERC questions)
         $cercAnswers = $testResult->answers->keyBy('question_id');
-        
+
         // Get CERC test questions with their texts and relationships
         $cercTestQuestions = $test->selectedQuestions()
             ->with('construct.cluster')
@@ -3239,12 +3287,12 @@ or medical concerns, consult a qualified professional. For any queries regarding
                 // Create maps for matching
                 $scProAnswersById = [];
                 $scProAnswersByText = [];
-                
+
                 foreach ($scProAnswers as $scProAnswer) {
                     if ($scProAnswer->question) {
                         // Store by ID for exact matches
                         $scProAnswersById[$scProAnswer->question_id] = $scProAnswer;
-                        
+
                         // Store by normalized text for text-based matching
                         $normalizedText = $this->normalizeQuestionText($scProAnswer->question->question_text);
                         if (!isset($scProAnswersByText[$normalizedText])) {
@@ -3325,4 +3373,3 @@ or medical concerns, consult a qualified professional. For any queries regarding
         return $normalized;
     }
 }
-

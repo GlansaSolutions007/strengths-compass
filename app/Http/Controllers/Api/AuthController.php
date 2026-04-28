@@ -7,6 +7,7 @@ use App\Mail\WelcomeMail;
 use App\Mail\ForgotPasswordMail;
 use App\Models\User;
 use App\Models\AgeGroup;
+use App\Models\Role;
 use App\Models\TeacherData;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -25,7 +26,8 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         // \Log::info("REGISTER METHOD HIT");
-        $role = $request->input('role');
+        $requestedRole = strtolower((string) $request->input('role', 'user'));
+        $role = in_array($requestedRole, ['admin', 'teacher'], true) ? $requestedRole : 'user';
 
 
         // Base validation rules (common for all)
@@ -107,23 +109,15 @@ class AuthController extends Controller
             $userData['educational_qualification'] = $request->educational_qualification;
 
 
-            // Automatically assign age_group_id based on age
-
-            if ($request->role === 'teacher') {
-                $userData['age_group_id'] = 6; // Assign to "Teachers" age group
-            } else {
-
-                if ($request->age) {
-                    $ageGroupId = $this->getAgeGroupIdByAge($request->age);
-                    if ($ageGroupId) {
-                        $userData['age_group_id'] = $ageGroupId;
-                    }
+            if ($request->age) {
+                $ageGroupId = $this->getAgeGroupIdByAgeAndProfession($request->age, $request->profession);
+                if ($ageGroupId) {
+                    $userData['age_group_id'] = $ageGroupId;
                 }
             }
 
             // Set name as combination of first_name and last_name for backward compatibility
             $userData['name'] = trim($request->first_name . ' ' . $request->last_name);
-            
         }
         // print_r($userData);
         //     // exit();
@@ -227,16 +221,13 @@ class AuthController extends Controller
         $ageGroupId = null;
         $ageGroup = null;
 
-        if ($role === 'user' && $user->age) {
-            // For regular users, automatically determine age group from their age
-            $ageGroupId = $this->getAgeGroupIdByAge($user->age);
+        if (($role === 'user' || $role === 'teacher') && $user->age) {
+            $ageGroupId = $user->age_group_id ?: $this->getAgeGroupIdByAgeAndProfession($user->age, $user->profession);
             if ($ageGroupId) {
                 session(['selected_age_group_id' => $ageGroupId]);
                 session()->save(); // Ensure session is saved
                 $ageGroup = AgeGroup::find($ageGroupId);
             }
-        } elseif ($role === 'teacher') {
-            $ageGroupId = 6;
         }
         // For admin, age group will be set manually via the set-age-group endpoint
 
@@ -290,9 +281,8 @@ class AuthController extends Controller
         $ageGroupId = null;
         $ageGroup = null;
 
-        if ($user->role === 'user' && $user->age) {
-            // For regular users, automatically determine age group from their age
-            $ageGroupId = $this->getAgeGroupIdByAge($user->age);
+        if (($user->role === 'user' || $user->role === 'teacher') && $user->age) {
+            $ageGroupId = $user->age_group_id ?: $this->getAgeGroupIdByAgeAndProfession($user->age, $user->profession);
             if ($ageGroupId) {
                 session(['selected_age_group_id' => $ageGroupId]);
                 session()->save(); // Ensure session is saved
@@ -607,6 +597,45 @@ class AuthController extends Controller
     }
 
     /**
+     * Resolve age group by matching the user's profession to roles.name, then
+     * matching the age range for that role. Falls back to role 1.
+     */
+    private function getAgeGroupIdByAgeAndProfession($age, ?string $profession = null)
+    {
+        $roleId = AgeGroup::DEFAULT_ROLE_ID;
+        $profession = trim((string) $profession);
+
+        if ($profession !== '') {
+            $normalizedProfession = strtolower($profession);
+            $roleNames = [$normalizedProfession];
+            if (str_ends_with($normalizedProfession, 's')) {
+                $roleNames[] = substr($normalizedProfession, 0, -1);
+            }
+
+            $role = Role::whereIn(DB::raw('LOWER(name)'), array_unique($roleNames))->first();
+            if ($role) {
+                $roleId = $role->id;
+            }
+        }
+
+        $ageGroup = AgeGroup::where('role', $roleId)
+            ->where('from', '<=', $age)
+            ->where('to', '>=', $age)
+            ->where('is_active', true)
+            ->first();
+
+        if (!$ageGroup && $roleId !== AgeGroup::DEFAULT_ROLE_ID) {
+            $ageGroup = AgeGroup::where('role', AgeGroup::DEFAULT_ROLE_ID)
+                ->where('from', '<=', $age)
+                ->where('to', '>=', $age)
+                ->where('is_active', true)
+                ->first();
+        }
+
+        return $ageGroup ? $ageGroup->id : null;
+    }
+
+    /**
      * Set age group for admin (or override for user)
      * Admin can select any age group, users can only see their own age group
      */
@@ -672,7 +701,7 @@ class AuthController extends Controller
                 ], 403);
             }
 
-            $userAgeGroupId = $this->getAgeGroupIdByAge($user->age);
+            $userAgeGroupId = $user->age_group_id ?: $this->getAgeGroupIdByAgeAndProfession($user->age, $user->profession);
 
             if ($ageGroupId != $userAgeGroupId) {
                 return response()->json([
@@ -751,8 +780,8 @@ class AuthController extends Controller
 
         if (!$ageGroupId) {
             // For users, try to determine from their age
-            if ($user->role === 'user' && $user->age) {
-                $ageGroupId = $this->getAgeGroupIdByAge($user->age);
+            if (($user->role === 'user' || $user->role === 'teacher') && $user->age) {
+                $ageGroupId = $user->age_group_id ?: $this->getAgeGroupIdByAgeAndProfession($user->age, $user->profession);
                 if ($ageGroupId) {
                     session(['selected_age_group_id' => $ageGroupId]);
                 }

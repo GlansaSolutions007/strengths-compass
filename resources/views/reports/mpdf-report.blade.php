@@ -843,6 +843,15 @@ body {
                         </div>
                     @endif
 
+                    @if(isset($data['experience_stage_description']))
+                        <div class="test-report-item-label">Career Stage Insights</div>
+                        <div class="description-box">
+                            <div class="test-report-item-text">
+                                {{ $data['experience_stage_description'] }}
+                            </div>
+                        </div>
+                    @endif
+
                     @if(isset($data['behaviour']))
                         <div class="tendency-box tendency-box-{{ strtolower($data['category'] ?? 'high') }}">
                             <div class="tendency-label">Your Tendency</div>

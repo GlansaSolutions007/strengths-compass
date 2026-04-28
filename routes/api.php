@@ -73,6 +73,7 @@ Route::delete('options/{id}', [OptionsController::class, 'destroy']);
 // Age Groups CRUD (public for now)
 Route::get('age-groups', [AgeGroupController::class, 'index']);
 Route::post('age-groups', [AgeGroupController::class, 'store']);
+Route::post('age-groups/defaults', [AgeGroupController::class, 'storeDefaults']);
 Route::get('age-groups/{id}', [AgeGroupController::class, 'show']);
 Route::put('age-groups/{id}', [AgeGroupController::class, 'update']);
 Route::delete('age-groups/{id}', [AgeGroupController::class, 'destroy']);
@@ -135,6 +136,7 @@ Route::post('questions/{id}/assign-construct', [QuestionsController::class, 'ass
 Route::post('questions/bulk-assign-construct', [QuestionsController::class, 'bulkAssignConstruct']);
 
 // Tests CRUD (public for now)
+
 Route::get('tests', [TestController::class, 'index']);
 Route::get('tests/{id}', [TestController::class, 'show']);
 Route::post('tests', [TestController::class, 'store']);

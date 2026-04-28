@@ -781,6 +781,12 @@
                                         <div class="test-report-item-text">{{ $clusterData['description'] }}</div>
                                     </div>
                                 @endif
+                                @if(isset($clusterData['experience_stage_description']))
+                                    <div class="test-report-item-label">Career Stage Insights</div>
+                                    <div class="description-box">
+                                        <div class="test-report-item-text">{{ $clusterData['experience_stage_description'] }}</div>
+                                    </div>
+                                @endif
                                 @if(isset($clusterData['behaviour']))
                                     <div class="tendency-box">
                                         <div class="tendency-label">Your Tendency</div>

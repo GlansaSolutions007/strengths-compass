@@ -22,6 +22,7 @@ class TestController extends Controller
     {
         $query = Test::with(['clusters', 'ageGroup']);
 
+
         // Filter by age_group_id if provided in request
         if ($request->has('age_group_id')) {
             $query->where('age_group_id', $request->age_group_id);
@@ -151,7 +152,7 @@ class TestController extends Controller
             'description' => 'nullable|string',
             'age_group_id' => 'nullable|exists:age_groups,id',
             'is_active' => 'sometimes|boolean',
-            'source' => 'sometimes|in:SC Pro,CERC',
+            'source' => 'nullable|string', //SC Pro Teacher
             'sc_pro_test_id' => [
                 'nullable',
                 'exists:tests,id',

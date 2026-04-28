@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgeGroup;
 use App\Models\Role;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class RoleController extends Controller
@@ -49,12 +51,18 @@ class RoleController extends Controller
             ], 422);
         }
 
-        $role = Role::create($request->only(['name', 'isActive']));
+        [$role, $ageGroups] = DB::transaction(function () use ($request) {
+            $role = Role::create($request->only(['name', 'isActive']));
+            $ageGroups = AgeGroup::createDefaultGroupsForRole($role->id);
+
+            return [$role, $ageGroups];
+        });
 
         return response()->json([
             'status'  => true,
             'message' => 'Role created successfully',
-            'data'    => $role
+            'data'    => $role,
+            'age_groups' => $ageGroups,
         ], 201);
     }
 

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Construct;
 use App\Models\ExperienceStage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -13,9 +12,21 @@ class ExperienceStageController extends Controller
     /**
      * Display a listing of all experience stages.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $stages = ExperienceStage::orderBy('min_years')->get();
+        $query = ExperienceStage::with('construct');
+
+        if ($request->has('construct_id')) {
+            $query->where('construct_id', $request->input('construct_id'));
+        }
+
+        if ($request->has('age_group_id')) {
+            $query->whereHas('construct', function ($constructQuery) use ($request) {
+                $constructQuery->where('age_group_id', $request->input('age_group_id'));
+            });
+        }
+
+        $stages = $query->orderBy('min_years')->get();
 
         return response()->json([
             'status' => true,
@@ -37,19 +48,6 @@ class ExperienceStageController extends Controller
             'description' => 'nullable|string',
         ]);
 
-        $constructId = $request->input('construct_id');
-        if ($constructId) {
-            $construct = Construct::where('id', $constructId)
-                ->where('age_group_id', 6)
-                ->first();
-
-            if (!$construct) {
-                return response()->json([
-                    'message' => 'Given construct id is not for age group 6'
-                ], 422);
-            }
-        }
-
         if ($validator->fails()) {
             return response()->json([
                 'status'  => false,
@@ -65,6 +63,7 @@ class ExperienceStageController extends Controller
             'max_years',
             'description',
         ]));
+        $stage->load('construct');
 
         return response()->json([
             'status'  => true,
@@ -78,7 +77,7 @@ class ExperienceStageController extends Controller
      */
     public function show(string $id)
     {
-        $stage = ExperienceStage::find($id);
+        $stage = ExperienceStage::with('construct')->find($id);
 
         if (!$stage) {
             return response()->json([
@@ -131,6 +130,7 @@ class ExperienceStageController extends Controller
             'max_years',
             'description',
         ]));
+        $stage->load('construct');
 
         return response()->json([
             'status'  => true,
